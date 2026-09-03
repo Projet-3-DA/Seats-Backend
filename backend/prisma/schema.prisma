@@ -1,0 +1,96 @@
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "postgresql"
+}
+
+model Utilisateur {
+    id Int @id @default(autoincrement())
+    email String @unique
+    motDePasse String
+    nom String
+    prenom String
+    role Role
+    createdAt DateTime @default(now())
+
+    salles Salle[]
+    evenements Evenement[]
+    reservations Reservation[]
+}
+
+enum Role{
+    spectateur
+    organisateur
+    administrateur
+}
+
+model Salle{
+    id Int @id @default(autoincrement())
+    organisateurId Int
+    organisateur Utilisateur @relation(fields: [organisateurId], references: [id])
+    nom String
+    nombreRangees Int
+    siegesParRangee Int
+    createdAt DateTime @default(now())
+
+    sieges Siege[]
+    evenements Evenement[]
+
+    @@unique([organisateurId,nom])
+}
+
+model Siege{
+    id Int @id @default(autoincrement())
+    salleId Int
+    salle Salle @relation(fields: [salleId], references: [id])
+    numeroRangee Int
+    numeroColonne Int
+    createdAt DateTime @default(now())
+
+    reservations Reservation[]
+
+    @@unique([salleId, numeroRangee, numeroColonne])
+}
+
+model Evenement{
+    id Int @id @default(autoincrement())
+    organisateurId Int
+    organisateur Utilisateur @relation(fields: [organisateurId], references: [id])
+    salleId Int
+    salle Salle @relation(fields: [salleId], references: [id])
+    titre String
+    description String?
+    dateHeure DateTime
+    createdAt DateTime @default(now())
+
+    reservations Reservation[]
+}
+
+model Reservation {
+  id               Int              @id @default(autoincrement())
+  spectateurId     Int
+  spectateur       Utilisateur      @relation(fields: [spectateurId], references: [id])
+  siegeId          Int
+  siege            Siege            @relation(fields: [siegeId], references: [id])
+  evenementId      Int
+  evenement        Evenement        @relation(fields: [evenementId], references: [id])
+  statut           StatutReservation
+  dateSelection    DateTime         @default(now())
+  dateConfirmation DateTime?
+  delaiExpiration  DateTime
+
+  @@unique([siegeId, evenementId])
+}
+
+enum StatutReservation {
+  en_selection
+  confirmee
+  annulee
+}
+
+
+
+
