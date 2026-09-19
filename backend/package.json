@@ -1,18 +1,17 @@
 {
-  "dependencies": {
-    "express": "^5.2.1",
-    "ws": "^8.21.3"
-  },
-  "devDependencies": {
-    "prisma": "^8.0.0-rc.12"
-  },
+  "name": "backend",
+  "version": "1.0.0",
   "scripts": {
-    "postinstall": "prisma skills sync || exit 0",
     "start": "node src/server.js",
+    "postinstall": "prisma skills sync || exit 0"
+  },
+  "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
-    "dotenv": "^17.4.2",
-    "pg": "^8.23.0"
+    "dotenv": "^16.4.7",
+    "express": "^5.2.1",
+    "pg": "^8.13.3",
+    "ws": "^8.18.1"
   },
   "devDependencies": {
     "prisma": "^7.10.0"
