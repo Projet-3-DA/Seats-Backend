@@ -1,7 +1,6 @@
 const app = require('./app');
-const PORT = process.env.PORT || 3000;
+const env = require('./config/env');
 
-// Démarrage du serveur HTTP
-app.listen(PORT, () => {
-  console.log(`Serveur en écoute sur le port ${PORT}`);
+const server = app.listen(env.port, () => {
+  console.log(`Serveur Seats backend en écoute sur le port ${env.port}`);
 });

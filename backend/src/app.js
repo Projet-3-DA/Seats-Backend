@@ -1,8 +1,20 @@
-const express = require("express")
-const app = express()
+const express = require('express');
+const routes = require('./routes');
+const errorMiddleware = require('./middlewares/error.middleware');
 
-app.get("/", (req,res) => {
-    res.send("test")
-})
+const app = express();
 
-module.exports = app
+app.use(express.json());
+
+// Routes de l'API
+app.use('/api', routes);
+
+// Route d'état (Health check)
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', message: 'API Seats backend opérationnelle' });
+});
+
+// Middleware d'erreur global
+app.use(errorMiddleware);
+
+module.exports = app;
