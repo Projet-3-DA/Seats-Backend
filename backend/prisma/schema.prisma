@@ -63,6 +63,7 @@ model Evenement{
     salle Salle @relation(fields: [salleId], references: [id])
     titre String
     description String?
+    afficheUrl String?
     dateHeure DateTime
     createdAt DateTime @default(now())
 
