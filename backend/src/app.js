@@ -8,6 +8,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Routes de l'API
 app.use('/api', routes);
 
 app.get('/', (req, res) => {
