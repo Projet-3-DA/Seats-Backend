@@ -74,8 +74,27 @@ async function uploadAffiche(req, res, next) {
   }
 }
 
+async function getPlanSalle(req, res, next) {
+  try {
+    const evenementId = Number(req.params.id);
+    if (Number.isNaN(evenementId)) {
+      return res.status(400).json({ success: false, error: 'id invalide' });
+    }
+
+    const plan = await evenementsService.getPlanSalle(evenementId);
+    if (!plan) {
+      return res.status(404).json({ success: false, error: 'Événement introuvable' });
+    }
+
+    res.json({ success: true, data: plan });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   getEvenements,
   createEvenement,
-  uploadAffiche,
+  getPlanSalle,
+  uploadAffiche
 };
