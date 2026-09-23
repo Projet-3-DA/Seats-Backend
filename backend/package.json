@@ -3,11 +3,12 @@
   "version": "1.0.0",
   "scripts": {
     "start": "node src/server.js",
-    "postinstall": "prisma skills sync || exit 0"
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
+    "cors": "^2.8.6",
     "dotenv": "^16.4.7",
     "express": "^5.2.1",
     "pg": "^8.13.3",
