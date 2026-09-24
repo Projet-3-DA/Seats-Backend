@@ -63,7 +63,9 @@ model Evenement{
     salle Salle @relation(fields: [salleId], references: [id])
     titre String
     description String?
+    afficheUrl String?
     dateHeure DateTime
+    tarif Decimal? @db.Decimal(8, 2)
     createdAt DateTime @default(now())
 
     reservations Reservation[]
