@@ -4,8 +4,9 @@
 #   test   installe le projet et lance `npm test` (Jest).
 #          Prisma est simulé (src/lib/__mocks__/prisma.js) : le vrai client généré n'est jamais requis
 #          par les tests, donc --ignore-scripts (pas de "prisma generate") et aucun secret nécessaire.
-#   image  construit l'image Docker et la publie sur ghcr.io. Ne tourne que
-#          si `test` a réussi, et seulement sur main.
+#   image  construit l'image Docker et la publie sur ghcr.io. Ne tourne que si `test` a réussi, et
+#          seulement quand on pousse le tag "latest" — pas à chaque push sur main. Ce tag est mobile :
+#          pour publier une nouvelle image, `git tag -f latest && git push origin latest --force`.
 
 name: CI
 
@@ -32,7 +33,7 @@ jobs:
 
   image:
     needs: test
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/tags/latest'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -45,7 +46,7 @@ jobs:
       - name: Se connecter au registre
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      # Deux tags : `latest`, qui bouge à chaque push, et `sha-xxxxxxx`, figé.
+      # Deux tags Docker : `latest` (celui qu'on vient de pousser) et `sha-xxxxxxx`, figé sur ce commit.
       - name: Construire et publier l'image
         run: |
           OWNER=${GITHUB_REPOSITORY_OWNER,,}
