@@ -3,8 +3,10 @@ FROM node:24-alpine
 WORKDIR /app
 
 # Manifestes d'abord : tant qu'ils ne changent pas, npm ci reste en cache.
+# --ignore-scripts : le postinstall ("prisma generate") échouerait ici, prisma/schema.prisma n'étant
+# copié que juste en dessous. La vraie génération se fait explicitement une fois le schéma copié.
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 COPY prisma ./prisma
 COPY prisma.config.ts ./
