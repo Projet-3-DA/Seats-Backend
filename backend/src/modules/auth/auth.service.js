@@ -20,11 +20,18 @@ async function register(data) {
   }
 
   const motDePasseHash = await bcrypt.hash(data.motDePasse, SALT_ROUNDS);
-  const user = await prisma.utilisateur.create({
-    data: { ...data, motDePasse: motDePasseHash },
-  });
 
-  return sansMotDePasse(user);
+  try {
+    const user = await prisma.utilisateur.create({
+      data: { ...data, motDePasse: motDePasseHash },
+    });
+    return sansMotDePasse(user);
+  } catch (error) {
+    if (error.code === 'P2002') {
+      throw Object.assign(new Error('Un compte existe déjà avec cette adresse email'), { status: 409 });
+    }
+    throw error;
+  }
 }
 
 async function login(email, password) {
