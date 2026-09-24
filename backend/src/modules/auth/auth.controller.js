@@ -27,7 +27,7 @@ async function login(req, res, next) {
 
 async function me(req, res, next) {
   try {
-    const user = await authService.getUserById(req.user.sub);
+    const user = await authService.getUserById(req.user.id);
     if (!user) return res.status(404).json({ success: false, error: 'Utilisateur introuvable.' });
     res.json({ success: true, data: user });
   } catch (error) {

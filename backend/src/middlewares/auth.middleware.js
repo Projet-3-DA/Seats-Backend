@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const { jwtSecret } = require('../config/env');
 
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -12,12 +13,13 @@ function authMiddleware(req, res, next) {
   const token = authHeader.slice('Bearer '.length);
 
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET); // { sub, role, iat, exp }
+    const payload = jwt.verify(token, jwtSecret);
+    req.user = { id: payload.userId, role: payload.role };
     next();
   } catch (error) {
     return res.status(401).json({
       success: false,
-      error: 'Token invalide ou expiré.',
+      error: 'Accès non autorisé. Token manquant ou invalide.',
     });
   }
 }

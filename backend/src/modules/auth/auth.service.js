@@ -1,39 +1,57 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const prisma = require('../../lib/prisma');
+const { jwtSecret } = require('../../config/env');
 
-const JWT_SECRET = process.env.JWT_SECRET;
-const JWT_EXPIRES_IN = '7d';
+const SALT_ROUNDS = 10;
 
-function toPublicUser(user) {
-  const { motDePasse, ...rest } = user;
-  return rest;
+function sansMotDePasse(user) {
+  const { motDePasse, ...reste } = user;
+  return reste;
 }
 
-async function register({ email, motDePasse, nom, prenom, role }) {
-  const motDePasseHache = await bcrypt.hash(motDePasse, 10);
-  const user = await prisma.utilisateur.create({
-    data: { email, motDePasse: motDePasseHache, nom, prenom, role },
-  });
-  return toPublicUser(user);
+const CHAMPS_REQUIS = ['email', 'motDePasse', 'nom', 'prenom', 'role'];
+
+async function register(data) {
+  const champManquant = CHAMPS_REQUIS.find((champ) => !data[champ] || !String(data[champ]).trim());
+  if (champManquant) {
+    throw Object.assign(new Error(`Le champ "${champManquant}" est requis`), { status: 400 });
+  }
+
+  const motDePasseHash = await bcrypt.hash(data.motDePasse, SALT_ROUNDS);
+  try {
+    const user = await prisma.utilisateur.create({
+      data: { ...data, motDePasse: motDePasseHash },
+    });
+    return sansMotDePasse(user);
+  } catch (error) {
+    if (error.code === 'P2002') {
+      throw Object.assign(new Error('Un compte existe déjà avec cette adresse email'), { status: 409 });
+    }
+    throw error;
+  }
 }
 
-async function login(email, motDePasse) {
+async function login(email, password) {
   const user = await prisma.utilisateur.findUnique({ where: { email } });
-  // Message volontairement identique dans les deux cas (email inconnu / mot de passe faux)
-  if (!user) throw Object.assign(new Error('Email ou mot de passe incorrect.'), { status: 401 });
+  const erreurIdentifiants = Object.assign(new Error('Email ou mot de passe invalide'), { status: 401 });
+  if (!user) {
+    throw erreurIdentifiants;
+  }
 
-  const motDePasseValide = await bcrypt.compare(motDePasse, user.motDePasse);
-  if (!motDePasseValide) throw Object.assign(new Error('Email ou mot de passe incorrect.'), { status: 401 });
+  const motDePasseValide = await bcrypt.compare(password, user.motDePasse);
+  if (!motDePasseValide) {
+    throw erreurIdentifiants;
+  }
 
-  const token = jwt.sign({ sub: user.id, role: user.role }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  const token = jwt.sign({ userId: user.id, role: user.role }, jwtSecret, { expiresIn: '1h' });
 
-  return { token, user: toPublicUser(user) };
+  return { token, user: sansMotDePasse(user) };
 }
 
 async function getUserById(id) {
   const user = await prisma.utilisateur.findUnique({ where: { id } });
-  return user ? toPublicUser(user) : null;
+  return user ? sansMotDePasse(user) : null;
 }
 
 module.exports = { register, login, getUserById };

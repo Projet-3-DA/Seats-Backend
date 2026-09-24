@@ -7,14 +7,14 @@ async function getAllEvenements() {
 }
 
 // La salle doit exister et appartenir à l'organisateur qui crée l'événement
-async function createEvenement({ organisateurId, salleId, titre, description, dateHeure, afficheUrl }) {
+async function createEvenement({ organisateurId, salleId, titre, description, dateHeure, afficheUrl, tarif }) {
   const salle = await prisma.salle.findUnique({ where: { id: salleId } });
   if (!salle) throw httpError(404, 'Cette salle n\'existe pas.');
   if (salle.organisateurId !== organisateurId) {
     throw httpError(403, 'Cette salle n\'appartient pas à cet organisateur.');
   }
   return await prisma.evenement.create({
-    data: { organisateurId, salleId, titre, description, dateHeure, afficheUrl },
+    data: { organisateurId, salleId, titre, description, dateHeure, afficheUrl, tarif },
     include: { salle: true },
   });
 }
