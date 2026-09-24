@@ -5,6 +5,7 @@
     "start": "node src/server.js",
     "test": "jest",
     "test:watch": "jest --watch",
+    "test:integration": "jest --testPathIgnorePatterns=/node_modules/ --testMatch=**/*.integration.test.js",
     "postinstall": "prisma generate"
   },
   "dependencies": {
@@ -27,7 +28,8 @@
     "testEnvironment": "node",
     "clearMocks": true,
     "testPathIgnorePatterns": [
-      "/node_modules/"
+      "/node_modules/",
+      "\\.integration\\.test\\.js$"
     ]
   }
 }
