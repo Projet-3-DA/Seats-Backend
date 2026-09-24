@@ -1,3 +1,5 @@
+const jwt = require('jsonwebtoken');
+const { jwtSecret } = require('../config/env');
 const authMiddleware = require('./auth.middleware');
 
 function reponseFake() {
@@ -5,6 +7,10 @@ function reponseFake() {
   res.status = jest.fn().mockReturnValue(res);
   res.json = jest.fn().mockReturnValue(res);
   return res;
+}
+
+function jeton(payload, options) {
+  return jwt.sign(payload, jwtSecret, options);
 }
 
 describe('authMiddleware', () => {
@@ -36,10 +42,44 @@ describe('authMiddleware', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  // Documente l'état actuel, pas un comportement souhaité : le TODO du middleware (vérifier le JWT,
-  // remplir req.user) n'est pas fait, donc n'importe quel texte après "Bearer " est accepté pour l'instant.
-  it('laisse passer une requête avec un en-tête Bearer et appelle next()', () => {
-    const req = { headers: { authorization: 'Bearer un-token' } };
+  it('refuse avec 401 un token invalide (signature incorrecte)', () => {
+    const req = { headers: { authorization: 'Bearer un-token-invalide' } };
+    const res = reponseFake();
+    const next = jest.fn();
+
+    authMiddleware(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('refuse avec 401 un token expiré', () => {
+    const token = jeton({ userId: 1, role: 'spectateur' }, { expiresIn: -10 });
+    const req = { headers: { authorization: `Bearer ${token}` } };
+    const res = reponseFake();
+    const next = jest.fn();
+
+    authMiddleware(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('refuse avec 401 un token signé avec une autre clé', () => {
+    const token = jwt.sign({ userId: 1, role: 'spectateur' }, 'une-autre-cle');
+    const req = { headers: { authorization: `Bearer ${token}` } };
+    const res = reponseFake();
+    const next = jest.fn();
+
+    authMiddleware(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('accepte un token valide, remplit req.user et appelle next()', () => {
+    const token = jeton({ userId: 42, role: 'organisateur' });
+    const req = { headers: { authorization: `Bearer ${token}` } };
     const res = reponseFake();
     const next = jest.fn();
 
@@ -47,5 +87,6 @@ describe('authMiddleware', () => {
 
     expect(next).toHaveBeenCalledTimes(1);
     expect(res.status).not.toHaveBeenCalled();
+    expect(req.user).toEqual({ id: 42, role: 'organisateur' });
   });
 });
