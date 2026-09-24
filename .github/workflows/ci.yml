@@ -1,12 +1,18 @@
 # L'intégration continue du backend Seats. GitHub exécute ce fichier à chaque push.
 #
-# Deux jobs, chacun sur une machine neuve :
-#   test   installe le projet et lance `npm test` (Jest).
-#          Prisma est simulé (src/lib/__mocks__/prisma.js) : le vrai client généré n'est jamais requis
-#          par les tests, donc --ignore-scripts (pas de "prisma generate") et aucun secret nécessaire.
-#   image  construit l'image Docker et la publie sur ghcr.io. Ne tourne que si `test` a réussi, et
-#          seulement quand on pousse le tag "latest" — pas à chaque push sur main. Ce tag est mobile :
-#          pour publier une nouvelle image, `git tag -f latest && git push origin latest --force`.
+# Jobs, chacun sur une machine neuve :
+#   test              installe le projet et lance `npm test` (Jest).
+#                      Prisma est simulé (src/lib/__mocks__/prisma.js) : le vrai client généré n'est
+#                      jamais requis par les tests, donc --ignore-scripts (pas de "prisma generate")
+#                      et aucun secret nécessaire.
+#   test-integration   lance `npm run test:integration` (*.integration.test.js) contre un vrai Postgres
+#                      démarré comme service GitHub Actions, pour prouver des garanties réelles de la
+#                      base (ex : contrainte unique sous confirmation concurrente, #16/#27/#38) qu'un
+#                      mock ne peut pas simuler.
+#   image              construit l'image Docker et la publie sur ghcr.io. Ne tourne que si les deux
+#                      jobs de test ont réussi, et seulement quand on pousse le tag "latest" — pas à
+#                      chaque push sur main. Ce tag est mobile : pour publier une nouvelle image,
+#                      `git tag -f latest && git push origin latest --force`.
 
 name: CI
 
@@ -31,8 +37,43 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm test
 
+  test-integration:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: seats_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/seats_test
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/seats_test
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+      - run: npx prisma migrate deploy
+      - run: npm run test:integration
+
   image:
-    needs: test
+    needs: [test, test-integration]
     if: github.ref == 'refs/tags/latest'
     runs-on: ubuntu-latest
     permissions:
