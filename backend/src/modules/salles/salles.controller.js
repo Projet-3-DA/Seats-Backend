@@ -1,13 +1,5 @@
 const sallesService = require('./salles.service');
-
-function validateCreateSalle(body) {
-  const { organisateurId, nom, nombreRangees, siegesParRangee } = body;
-  if (!Number.isInteger(organisateurId)) return 'organisateurId est requis et doit être un entier.';
-  if (typeof nom !== 'string' || nom.trim().length === 0) return 'nom est requis.';
-  if (!Number.isInteger(nombreRangees) || nombreRangees <= 0) return 'nombreRangees doit être un entier positif.';
-  if (!Number.isInteger(siegesParRangee) || siegesParRangee <= 0) return 'siegesParRangee doit être un entier positif.';
-  return null;
-}
+const { validateCreateSalle } = require('./salles.validation');
 
 async function getSalles(req, res, next) {
   try {
