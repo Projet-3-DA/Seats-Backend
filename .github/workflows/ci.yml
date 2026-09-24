@@ -1,0 +1,60 @@
+# L'intégration continue du backend Seats. GitHub exécute ce fichier à chaque push.
+#
+# Deux jobs, chacun sur une machine neuve :
+#   test   installe le projet, génère le client Prisma et lance `npm test`.
+#          Les tests mockent Prisma : aucune base n'est nécessaire.
+#   image  construit l'image Docker et la publie sur ghcr.io. Ne tourne que
+#          si `test` a réussi, et seulement sur main.
+
+name: CI
+
+on:
+  push:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+      - run: npx prisma generate
+        env:
+          DIRECT_URL: postgresql://build:build@localhost:5432/build
+      - run: npm test
+
+  image:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # publier dans ghcr.io
+    steps:
+      - uses: actions/checkout@v7
+
+      # GITHUB_TOKEN est fourni par GitHub à chaque exécution : pas de secret
+      # à créer. Le nom du propriétaire doit être en minuscules pour ghcr.io.
+      - name: Se connecter au registre
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      # Deux tags : `latest`, qui bouge à chaque push, et `sha-xxxxxxx`, figé.
+      - name: Construire et publier l'image
+        run: |
+          OWNER=${GITHUB_REPOSITORY_OWNER,,}
+          SHA=sha-${GITHUB_SHA::7}
+
+          docker build -f backend/Dockerfile \
+            -t ghcr.io/$OWNER/seats-backend:latest \
+            -t ghcr.io/$OWNER/seats-backend:$SHA \
+            backend
+          docker push --all-tags ghcr.io/$OWNER/seats-backend
