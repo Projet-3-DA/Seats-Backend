@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      # --ignore-scripts : évite "prisma generate" (postinstall), qui a besoin de DIRECT_URL.
+      # Les tests simulent toujours Prisma (voir src/lib/__mocks__/prisma.js), donc le vrai client
+      # généré n'est jamais nécessaire ici, et la CI n'a besoin d'aucun secret de base de données.
+      - name: Installer les dépendances
+        run: npm ci --ignore-scripts
+
+      - name: Lancer les tests
+        run: npm test
