@@ -1,15 +1,10 @@
-jest.mock('../../lib/prisma');
-// On simule aussi le stockage : sans ça, POST /affiche appellerait la vraie API Supabase (et lirait
-// de vrais identifiants s'il y a un .env local) à chaque exécution des tests.
-jest.mock('../../lib/storage', () => ({
-  TYPES_ACCEPTES: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
-  uploadImage: jest.fn(),
-}));
-
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
 const request = require('supertest');
 const app = require('../../app');
 const prisma = require('../../lib/prisma');
 const storage = require('../../lib/storage');
+const httpError = require('../../lib/http-error');
 
 const futur = () => new Date(Date.now() + 7 * 86400_000).toISOString();
 
@@ -25,198 +20,202 @@ function corpsValide(overrides = {}) {
   };
 }
 
-describe('GET /api/evenements', () => {
-  it('renvoie la liste des événements', async () => {
-    const liste = [{ id: 1, titre: 'Concert', salle: { id: 19, nom: 'Salle A' } }];
-    prisma.evenement.findMany.mockResolvedValue(liste);
+test('GET /api/evenements renvoie la liste des événements', async (t) => {
+  const liste = [{ id: 1, titre: 'Concert', salle: { id: 19, nom: 'Salle A' } }];
+  prisma.evenement.findMany = t.mock.fn(async () => liste);
 
-    const res = await request(app).get('/api/evenements');
+  const res = await request(app).get('/api/evenements');
 
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ success: true, data: liste });
-  });
-
-  it('renvoie 500 si la base de données échoue', async () => {
-    prisma.evenement.findMany.mockRejectedValue(new Error('connexion perdue'));
-
-    const res = await request(app).get('/api/evenements');
-
-    expect(res.status).toBe(500);
-    expect(res.body.success).toBe(false);
-  });
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body, { success: true, data: liste });
 });
 
-describe('POST /api/evenements', () => {
-  it('refuse un corps invalide sans toucher à la base (400)', async () => {
-    const res = await request(app).post('/api/evenements').send(corpsValide({ titre: '' }));
-
-    expect(res.status).toBe(400);
-    expect(res.body).toEqual({ success: false, error: expect.stringMatching(/titre est requis/) });
-    expect(prisma.evenement.create).not.toHaveBeenCalled();
+test('GET /api/evenements renvoie 500 si la base de données échoue', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  prisma.evenement.findMany = t.mock.fn(async () => {
+    throw new Error('connexion perdue');
   });
 
-  it('crée l\'événement quand la salle existe et appartient à l\'organisateur (201)', async () => {
-    prisma.salle.findUnique.mockResolvedValue({ id: 19, organisateurId: 1 });
-    const cree = { id: 1, titre: 'Festival de Jazz', salle: { id: 19, nom: 'Salle A' } };
-    prisma.evenement.create.mockResolvedValue(cree);
+  const res = await request(app).get('/api/evenements');
 
-    const res = await request(app)
-      .post('/api/evenements')
-      .send(corpsValide({ titre: '  Festival de Jazz  ', description: '  Une soirée jazz  ' }));
-
-    expect(res.status).toBe(201);
-    expect(res.body).toEqual({ success: true, data: cree });
-
-    const donneesEnvoyees = prisma.evenement.create.mock.calls[0][0].data;
-    expect(donneesEnvoyees.titre).toBe('Festival de Jazz'); // nettoyé (trim)
-    expect(donneesEnvoyees.description).toBe('Une soirée jazz'); // nettoyé (trim)
-    expect(donneesEnvoyees.tarif).toBe(25);
-    expect(donneesEnvoyees.dateHeure).toBeInstanceOf(Date);
-  });
-
-  it('accepte une description et une afficheUrl absentes (null en base)', async () => {
-    prisma.salle.findUnique.mockResolvedValue({ id: 19, organisateurId: 1 });
-    prisma.evenement.create.mockResolvedValue({ id: 1 });
-
-    await request(app).post('/api/evenements').send(corpsValide({ description: undefined, afficheUrl: undefined }));
-
-    const donneesEnvoyees = prisma.evenement.create.mock.calls[0][0].data;
-    expect(donneesEnvoyees.description).toBeNull();
-    expect(donneesEnvoyees.afficheUrl).toBeNull();
-  });
-
-  it('refuse avec 404 si la salle n\'existe pas', async () => {
-    prisma.salle.findUnique.mockResolvedValue(null);
-
-    const res = await request(app).post('/api/evenements').send(corpsValide({ salleId: 999 }));
-
-    expect(res.status).toBe(404);
-    expect(prisma.evenement.create).not.toHaveBeenCalled();
-  });
-
-  it('refuse avec 403 si la salle appartient à un autre organisateur', async () => {
-    prisma.salle.findUnique.mockResolvedValue({ id: 19, organisateurId: 2 });
-
-    const res = await request(app).post('/api/evenements').send(corpsValide({ organisateurId: 1 }));
-
-    expect(res.status).toBe(403);
-    expect(prisma.evenement.create).not.toHaveBeenCalled();
-  });
-
-  it('traduit une violation de contrainte Prisma (P2003) en 400', async () => {
-    prisma.salle.findUnique.mockResolvedValue({ id: 19, organisateurId: 1 });
-    prisma.evenement.create.mockRejectedValue(Object.assign(new Error('FK violation'), { code: 'P2003' }));
-
-    const res = await request(app).post('/api/evenements').send(corpsValide());
-
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/Organisateur introuvable/);
-  });
-
-  it('renvoie 500 pour une erreur inattendue de la base', async () => {
-    prisma.salle.findUnique.mockResolvedValue({ id: 19, organisateurId: 1 });
-    prisma.evenement.create.mockRejectedValue(new Error('boum'));
-
-    const res = await request(app).post('/api/evenements').send(corpsValide());
-
-    expect(res.status).toBe(500);
-  });
+  assert.equal(res.status, 500);
+  assert.equal(res.body.success, false);
 });
 
-describe('POST /api/evenements/affiche', () => {
-  it('refuse un Content-Type non accepté (400)', async () => {
-    const res = await request(app)
-      .post('/api/evenements/affiche')
-      .set('Content-Type', 'text/plain')
-      .send('pas une image');
-
-    expect(res.status).toBe(400);
-    expect(storage.uploadImage).not.toHaveBeenCalled();
+test('POST /api/evenements refuse un corps invalide sans toucher à la base (400)', async (t) => {
+  const creation = prisma.evenement.create = t.mock.fn(async () => {
+    throw new Error('ne devrait pas être appelé');
   });
 
-  it('refuse un corps vide (400)', async () => {
-    const res = await request(app)
-      .post('/api/evenements/affiche')
-      .set('Content-Type', 'image/png')
-      .send(Buffer.alloc(0));
+  const res = await request(app).post('/api/evenements').send(corpsValide({ titre: '' }));
 
-    expect(res.status).toBe(400);
-  });
-
-  it('refuse une image de plus de 5 Mo (413)', async () => {
-    const res = await request(app)
-      .post('/api/evenements/affiche')
-      .set('Content-Type', 'image/png')
-      .send(Buffer.alloc(5 * 1024 * 1024 + 10));
-
-    expect(res.status).toBe(413);
-    expect(res.body.error).toMatch(/5 Mo/);
-  });
-
-  it('envoie l\'image au stockage et renvoie son URL publique (201)', async () => {
-    storage.uploadImage.mockResolvedValue('https://exemple.supabase.co/storage/v1/object/public/affiches/x.jpg');
-
-    const res = await request(app)
-      .post('/api/evenements/affiche')
-      .set('Content-Type', 'image/jpeg')
-      .send(Buffer.from('donnees-image'));
-
-    expect(res.status).toBe(201);
-    expect(res.body).toEqual({ success: true, data: { url: expect.stringContaining('/affiches/') } });
-    expect(storage.uploadImage).toHaveBeenCalledWith(expect.any(Buffer), 'image/jpeg');
-  });
-
-  it('renvoie l\'erreur du service de stockage (ex. 502)', async () => {
-    const httpError = require('../../lib/http-error');
-    storage.uploadImage.mockRejectedValue(httpError(502, "Échec de l'envoi de l'image vers le stockage."));
-
-    const res = await request(app)
-      .post('/api/evenements/affiche')
-      .set('Content-Type', 'image/png')
-      .send(Buffer.from('x'));
-
-    expect(res.status).toBe(502);
-  });
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /titre est requis/);
+  assert.equal(creation.mock.callCount(), 0);
 });
 
-describe('GET /api/evenements/:id/plan', () => {
-  it('refuse un id non numérique (400)', async () => {
-    const res = await request(app).get('/api/evenements/abc/plan');
-    expect(res.status).toBe(400);
+test("POST /api/evenements crée l'événement quand la salle existe et appartient à l'organisateur (201)", async (t) => {
+  prisma.salle.findUnique = t.mock.fn(async () => ({ id: 19, organisateurId: 1 }));
+  const cree = { id: 1, titre: 'Festival de Jazz', salle: { id: 19, nom: 'Salle A' } };
+  const creation = prisma.evenement.create = t.mock.fn(async () => cree);
+
+  const res = await request(app)
+    .post('/api/evenements')
+    .send(corpsValide({ titre: '  Festival de Jazz  ', description: '  Une soirée jazz  ' }));
+
+  assert.equal(res.status, 201);
+  assert.deepEqual(res.body, { success: true, data: cree });
+
+  const donneesEnvoyees = creation.mock.calls[0].arguments[0].data;
+  assert.equal(donneesEnvoyees.titre, 'Festival de Jazz'); // nettoyé (trim)
+  assert.equal(donneesEnvoyees.description, 'Une soirée jazz'); // nettoyé (trim)
+  assert.equal(donneesEnvoyees.tarif, 25);
+  assert.ok(donneesEnvoyees.dateHeure instanceof Date);
+});
+
+test('POST /api/evenements accepte une description et une afficheUrl absentes (null en base)', async (t) => {
+  prisma.salle.findUnique = t.mock.fn(async () => ({ id: 19, organisateurId: 1 }));
+  const creation = prisma.evenement.create = t.mock.fn(async () => ({ id: 1 }));
+
+  await request(app).post('/api/evenements').send(corpsValide({ description: undefined, afficheUrl: undefined }));
+
+  const donneesEnvoyees = creation.mock.calls[0].arguments[0].data;
+  assert.equal(donneesEnvoyees.description, null);
+  assert.equal(donneesEnvoyees.afficheUrl, null);
+});
+
+test("POST /api/evenements refuse avec 404 si la salle n'existe pas", async (t) => {
+  prisma.salle.findUnique = t.mock.fn(async () => null);
+  const creation = prisma.evenement.create = t.mock.fn(async () => {
+    throw new Error('ne devrait pas être appelé');
   });
 
-  it('renvoie 404 si l\'événement n\'existe pas', async () => {
-    prisma.evenement.findUnique.mockResolvedValue(null);
+  const res = await request(app).post('/api/evenements').send(corpsValide({ salleId: 999 }));
 
-    const res = await request(app).get('/api/evenements/999/plan');
+  assert.equal(res.status, 404);
+  assert.equal(creation.mock.callCount(), 0);
+});
 
-    expect(res.status).toBe(404);
+test('POST /api/evenements refuse avec 403 si la salle appartient à un autre organisateur', async (t) => {
+  prisma.salle.findUnique = t.mock.fn(async () => ({ id: 19, organisateurId: 2 }));
+  const creation = prisma.evenement.create = t.mock.fn(async () => {
+    throw new Error('ne devrait pas être appelé');
   });
 
-  it('marque réservés les sièges confirmés et libres les autres', async () => {
-    prisma.evenement.findUnique.mockResolvedValue({
-      id: 1,
-      salle: {
-        id: 19,
-        nom: 'Salle A',
-        sieges: [
-          { id: 101, numeroRangee: 1, numeroColonne: 1 },
-          { id: 102, numeroRangee: 1, numeroColonne: 2 },
-        ],
-      },
-      reservations: [{ siegeId: 101 }],
-    });
+  const res = await request(app).post('/api/evenements').send(corpsValide({ organisateurId: 1 }));
 
-    const res = await request(app).get('/api/evenements/1/plan');
+  assert.equal(res.status, 403);
+  assert.equal(creation.mock.callCount(), 0);
+});
 
-    expect(res.status).toBe(200);
-    expect(res.body.data).toEqual({
-      evenementId: 1,
-      salle: { id: 19, nom: 'Salle A' },
+test('POST /api/evenements traduit une violation de contrainte Prisma (P2003) en 400', async (t) => {
+  prisma.salle.findUnique = t.mock.fn(async () => ({ id: 19, organisateurId: 1 }));
+  prisma.evenement.create = t.mock.fn(async () => {
+    throw Object.assign(new Error('FK violation'), { code: 'P2003' });
+  });
+
+  const res = await request(app).post('/api/evenements').send(corpsValide());
+
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /Organisateur introuvable/);
+});
+
+test('POST /api/evenements renvoie 500 pour une erreur inattendue de la base', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  prisma.salle.findUnique = t.mock.fn(async () => ({ id: 19, organisateurId: 1 }));
+  prisma.evenement.create = t.mock.fn(async () => {
+    throw new Error('boum');
+  });
+
+  const res = await request(app).post('/api/evenements').send(corpsValide());
+
+  assert.equal(res.status, 500);
+});
+
+test("POST /api/evenements/affiche refuse un Content-Type non accepté (400)", async (t) => {
+  const upload = t.mock.method(storage, 'uploadImage', async () => {
+    throw new Error('ne devrait pas être appelé');
+  });
+
+  const res = await request(app).post('/api/evenements/affiche').set('Content-Type', 'text/plain').send('pas une image');
+
+  assert.equal(res.status, 400);
+  assert.equal(upload.mock.callCount(), 0);
+});
+
+test('POST /api/evenements/affiche refuse un corps vide (400)', async () => {
+  const res = await request(app).post('/api/evenements/affiche').set('Content-Type', 'image/png').send(Buffer.alloc(0));
+  assert.equal(res.status, 400);
+});
+
+test('POST /api/evenements/affiche refuse une image de plus de 5 Mo (413)', async () => {
+  const res = await request(app)
+    .post('/api/evenements/affiche')
+    .set('Content-Type', 'image/png')
+    .send(Buffer.alloc(5 * 1024 * 1024 + 10));
+
+  assert.equal(res.status, 413);
+  assert.match(res.body.error, /5 Mo/);
+});
+
+test("POST /api/evenements/affiche envoie l'image au stockage et renvoie son URL publique (201)", async (t) => {
+  const upload = t.mock.method(
+    storage,
+    'uploadImage',
+    async () => 'https://exemple.supabase.co/storage/v1/object/public/affiches/x.jpg',
+  );
+
+  const res = await request(app).post('/api/evenements/affiche').set('Content-Type', 'image/jpeg').send(Buffer.from('donnees-image'));
+
+  assert.equal(res.status, 201);
+  assert.match(res.body.data.url, /\/affiches\//);
+  assert.equal(upload.mock.calls[0].arguments[1], 'image/jpeg');
+});
+
+test('POST /api/evenements/affiche renvoie l\'erreur du service de stockage (ex. 502)', async (t) => {
+  t.mock.method(storage, 'uploadImage', async () => {
+    throw httpError(502, "Échec de l'envoi de l'image vers le stockage.");
+  });
+
+  const res = await request(app).post('/api/evenements/affiche').set('Content-Type', 'image/png').send(Buffer.from('x'));
+
+  assert.equal(res.status, 502);
+});
+
+test('GET /api/evenements/:id/plan refuse un id non numérique (400)', async () => {
+  const res = await request(app).get('/api/evenements/abc/plan');
+  assert.equal(res.status, 400);
+});
+
+test("GET /api/evenements/:id/plan renvoie 404 si l'événement n'existe pas", async (t) => {
+  prisma.evenement.findUnique = t.mock.fn(async () => null);
+  const res = await request(app).get('/api/evenements/999/plan');
+  assert.equal(res.status, 404);
+});
+
+test('GET /api/evenements/:id/plan marque réservés les sièges confirmés et libres les autres', async (t) => {
+  prisma.evenement.findUnique = t.mock.fn(async () => ({
+    id: 1,
+    salle: {
+      id: 19,
+      nom: 'Salle A',
       sieges: [
-        { id: 101, rangee: 1, colonne: 1, etat: 'reserve' },
-        { id: 102, rangee: 1, colonne: 2, etat: 'libre' },
+        { id: 101, numeroRangee: 1, numeroColonne: 1 },
+        { id: 102, numeroRangee: 1, numeroColonne: 2 },
       ],
-    });
+    },
+    reservations: [{ siegeId: 101 }],
+  }));
+
+  const res = await request(app).get('/api/evenements/1/plan');
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.data, {
+    evenementId: 1,
+    salle: { id: 19, nom: 'Salle A' },
+    sieges: [
+      { id: 101, rangee: 1, colonne: 1, etat: 'reserve' },
+      { id: 102, rangee: 1, colonne: 2, etat: 'libre' },
+    ],
   });
 });

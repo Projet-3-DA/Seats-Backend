@@ -1,22 +1,22 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
 const httpError = require('./http-error');
 
-describe('httpError', () => {
-  it('crée une Error avec le message donné', () => {
-    const err = httpError(404, 'Introuvable');
-    expect(err).toBeInstanceOf(Error);
-    expect(err.message).toBe('Introuvable');
-  });
+test('crée une Error avec le message donné', () => {
+  const err = httpError(404, 'Introuvable');
+  assert.ok(err instanceof Error);
+  assert.equal(err.message, 'Introuvable');
+});
 
-  it('attache le status à l\'erreur', () => {
-    const err = httpError(403, 'Interdit');
-    expect(err.status).toBe(403);
-  });
+test('attache le status à l\'erreur', () => {
+  const err = httpError(403, 'Interdit');
+  assert.equal(err.status, 403);
+});
 
-  it('produit des erreurs indépendantes à chaque appel', () => {
-    const a = httpError(400, 'a');
-    const b = httpError(500, 'b');
-    expect(a).not.toBe(b);
-    expect(a.status).toBe(400);
-    expect(b.status).toBe(500);
-  });
+test('produit des erreurs indépendantes à chaque appel', () => {
+  const a = httpError(400, 'a');
+  const b = httpError(500, 'b');
+  assert.notEqual(a, b);
+  assert.equal(a.status, 400);
+  assert.equal(b.status, 500);
 });

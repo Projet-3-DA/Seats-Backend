@@ -1,34 +1,62 @@
+# L'intégration continue du backend Seats. GitHub exécute ce fichier à chaque push.
+#
+# Deux jobs, chacun sur une machine neuve :
+#   test   installe le projet, génère le client Prisma et lance `npm test`.
+#          Les tests mockent Prisma : aucune base n'est nécessaire.
+#   image  construit l'image Docker et la publie sur ghcr.io. Ne tourne que
+#          si `test` a réussi, et seulement sur main.
+
 name: CI
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
 
 jobs:
   test:
-    name: Tests
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
+    # DIRECT_URL au niveau du job (pas juste d'une étape) : le postinstall de `npm ci` lance déjà
+    # `prisma generate`, qui lit ce config via prisma.config.ts et échoue sans elle — même si aucune
+    # vraie base n'est jamais contactée pour générer le client ou lancer les tests (Prisma est simulé).
+    env:
+      DIRECT_URL: postgresql://build:build@localhost:5432/build
     steps:
-      - name: Récupérer le code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - name: Installer Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
-      # --ignore-scripts : évite "prisma generate" (postinstall), qui a besoin de DIRECT_URL.
-      # Les tests simulent toujours Prisma (voir src/lib/__mocks__/prisma.js), donc le vrai client
-      # généré n'est jamais nécessaire ici, et la CI n'a besoin d'aucun secret de base de données.
-      - name: Installer les dépendances
-        run: npm ci --ignore-scripts
+      - run: npm ci
+      - run: npm test
 
-      - name: Lancer les tests
-        run: npm test
+  image:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # publier dans ghcr.io
+    steps:
+      - uses: actions/checkout@v7
+
+      # GITHUB_TOKEN est fourni par GitHub à chaque exécution : pas de secret
+      # à créer. Le nom du propriétaire doit être en minuscules pour ghcr.io.
+      - name: Se connecter au registre
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      # Deux tags : `latest`, qui bouge à chaque push, et `sha-xxxxxxx`, figé.
+      - name: Construire et publier l'image
+        run: |
+          OWNER=${GITHUB_REPOSITORY_OWNER,,}
+          SHA=sha-${GITHUB_SHA::7}
+
+          docker build -f backend/Dockerfile \
+            -t ghcr.io/$OWNER/seats-backend:latest \
+            -t ghcr.io/$OWNER/seats-backend:$SHA \
+            backend
+          docker push --all-tags ghcr.io/$OWNER/seats-backend
