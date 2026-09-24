@@ -1,6 +1,5 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-
 const prisma = require('../../lib/prisma');
 const { jwtSecret } = require('../../config/env');
 
@@ -20,7 +19,6 @@ async function register(data) {
   }
 
   const motDePasseHash = await bcrypt.hash(data.motDePasse, SALT_ROUNDS);
-
   try {
     const user = await prisma.utilisateur.create({
       data: { ...data, motDePasse: motDePasseHash },
@@ -51,7 +49,9 @@ async function login(email, password) {
   return { token, user: sansMotDePasse(user) };
 }
 
-module.exports = {
-  register,
-  login,
-};
+async function getUserById(id) {
+  const user = await prisma.utilisateur.findUnique({ where: { id } });
+  return user ? sansMotDePasse(user) : null;
+}
+
+module.exports = { register, login, getUserById };
