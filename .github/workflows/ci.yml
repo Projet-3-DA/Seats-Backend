@@ -29,7 +29,8 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
         env:
-          DIRECT_URL: postgresql://build:build@localhost:5432/build
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
       - run: npm test
 
   image:
