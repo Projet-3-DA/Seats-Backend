@@ -14,8 +14,8 @@ async function register(req, res, next) {
 
 async function login(req, res, next) {
   try {
-    const { email, motDePasse } = req.body;
-    const result = await authService.login(email, motDePasse);
+    const { email, password } = req.body;
+    const result = await authService.login(email, password);
     res.json({ success: true, data: result });
   } catch (error) {
     if (error.status === 401) {
