@@ -1,5 +1,5 @@
-const { test } = require('node:test');
-const assert = require('node:assert/strict');
+jest.mock('../../lib/prisma');
+
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const request = require('supertest');
@@ -18,50 +18,41 @@ function inscriptionValide(overrides = {}) {
   };
 }
 
-for (const champ of ['email', 'motDePasse', 'nom', 'prenom', 'role']) {
-  test(`POST /api/auth/register refuse si "${champ}" est manquant (400)`, async (t) => {
-    const creation = prisma.utilisateur.create = t.mock.fn(async () => {
-      throw new Error('ne devrait pas être appelé');
-    });
-
+describe('POST /api/auth/register', () => {
+  it.each(['email', 'motDePasse', 'nom', 'prenom', 'role'])('refuse si "%s" est manquant (400)', async (champ) => {
     const res = await request(app).post('/api/auth/register').send(inscriptionValide({ [champ]: undefined }));
 
-    assert.equal(res.status, 400);
-    assert.match(res.body.error, new RegExp(champ));
-    assert.equal(creation.mock.callCount(), 0);
-  });
-}
-
-test("POST /api/auth/register hache le mot de passe avant de l'enregistrer, et ne le renvoie jamais", async (t) => {
-  prisma.utilisateur.create = t.mock.fn(async ({ data }) => ({ id: 1, ...data }));
-
-  const res = await request(app).post('/api/auth/register').send(inscriptionValide());
-
-  assert.equal(res.status, 201);
-  assert.equal(res.body.success, true);
-  assert.equal(res.body.data.motDePasse, undefined);
-});
-
-test('POST /api/auth/register traduit un email déjà utilisé en 409', async (t) => {
-  prisma.utilisateur.create = t.mock.fn(async () => {
-    throw Object.assign(new Error('unique constraint'), { code: 'P2002' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(new RegExp(champ));
+    expect(prisma.utilisateur.create).not.toHaveBeenCalled();
   });
 
-  const res = await request(app).post('/api/auth/register').send(inscriptionValide());
+  it('hache le mot de passe avant de l\'enregistrer, et ne le renvoie jamais', async () => {
+    prisma.utilisateur.create.mockImplementation(async ({ data }) => ({ id: 1, ...data }));
 
-  assert.equal(res.status, 409);
-  assert.match(res.body.error, /existe déjà/);
-});
+    const res = await request(app).post('/api/auth/register').send(inscriptionValide());
 
-test('POST /api/auth/register renvoie 500 pour une erreur inattendue de la base', async (t) => {
-  t.mock.method(console, 'error', () => {});
-  prisma.utilisateur.create = t.mock.fn(async () => {
-    throw new Error('boum');
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.motDePasse).toBeUndefined();
   });
 
-  const res = await request(app).post('/api/auth/register').send(inscriptionValide());
+  it('traduit un email déjà utilisé en 409', async () => {
+    prisma.utilisateur.create.mockRejectedValue(Object.assign(new Error('unique constraint'), { code: 'P2002' }));
 
-  assert.equal(res.status, 500);
+    const res = await request(app).post('/api/auth/register').send(inscriptionValide());
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/existe déjà/);
+  });
+
+  it('renvoie 500 pour une erreur inattendue de la base', async () => {
+    prisma.utilisateur.create.mockRejectedValue(new Error('boum'));
+
+    const res = await request(app).post('/api/auth/register').send(inscriptionValide());
+
+    expect(res.status).toBe(500);
+  });
 });
 
 async function utilisateurAvecMotDePasse(motDePasse, overrides = {}) {
@@ -76,35 +67,35 @@ async function utilisateurAvecMotDePasse(motDePasse, overrides = {}) {
   };
 }
 
-test('POST /api/auth/login connecte avec les bons identifiants : token JWT valide, mot de passe absent', async (t) => {
-  prisma.utilisateur.findUnique = t.mock.fn(async () => utilisateurAvecMotDePasse('secret123'));
+describe('POST /api/auth/login', () => {
+  it('connecte avec les bons identifiants : token JWT valide, mot de passe absent de la réponse', async () => {
+    prisma.utilisateur.findUnique.mockResolvedValue(await utilisateurAvecMotDePasse('secret123'));
 
-  const res = await request(app).post('/api/auth/login').send({ email: 'a@exemple.com', password: 'secret123' });
+    const res = await request(app).post('/api/auth/login').send({ email: 'a@exemple.com', password: 'secret123' });
 
-  assert.equal(res.status, 200);
-  assert.equal(res.body.data.user.id, 1);
-  assert.equal(res.body.data.user.email, 'a@exemple.com');
-  assert.equal(res.body.data.user.motDePasse, undefined);
+    expect(res.status).toBe(200);
+    expect(res.body.data.user).toEqual(expect.objectContaining({ id: 1, email: 'a@exemple.com' }));
+    expect(res.body.data.user.motDePasse).toBeUndefined();
 
-  const payload = jwt.verify(res.body.data.token, jwtSecret);
-  assert.equal(payload.userId, 1);
-  assert.equal(payload.role, 'spectateur');
-});
+    const payload = jwt.verify(res.body.data.token, jwtSecret);
+    expect(payload).toMatchObject({ userId: 1, role: 'spectateur' });
+  });
 
-test('POST /api/auth/login refuse avec 401 (message générique) un email inconnu', async (t) => {
-  prisma.utilisateur.findUnique = t.mock.fn(async () => null);
+  it('refuse avec 401 (message générique) un email inconnu', async () => {
+    prisma.utilisateur.findUnique.mockResolvedValue(null);
 
-  const res = await request(app).post('/api/auth/login').send({ email: 'inconnu@exemple.com', password: 'x' });
+    const res = await request(app).post('/api/auth/login').send({ email: 'inconnu@exemple.com', password: 'x' });
 
-  assert.equal(res.status, 401);
-  assert.match(res.body.error, /invalide/);
-});
+    expect(res.status).toBe(401);
+    expect(res.body.error).toMatch(/invalide/);
+  });
 
-test('POST /api/auth/login refuse avec 401 (même message générique) un mauvais mot de passe', async (t) => {
-  prisma.utilisateur.findUnique = t.mock.fn(async () => utilisateurAvecMotDePasse('secret123'));
+  it('refuse avec 401 (même message générique) un mauvais mot de passe', async () => {
+    prisma.utilisateur.findUnique.mockResolvedValue(await utilisateurAvecMotDePasse('secret123'));
 
-  const res = await request(app).post('/api/auth/login').send({ email: 'a@exemple.com', password: 'mauvais' });
+    const res = await request(app).post('/api/auth/login').send({ email: 'a@exemple.com', password: 'mauvais' });
 
-  assert.equal(res.status, 401);
-  assert.match(res.body.error, /invalide/);
+    expect(res.status).toBe(401);
+    expect(res.body.error).toMatch(/invalide/);
+  });
 });

@@ -1,48 +1,52 @@
-const { test } = require('node:test');
-const assert = require('node:assert/strict');
 const errorMiddleware = require('./error.middleware');
 
-function mockRes() {
+function reponseFake() {
   const res = {};
-  res.status = (code) => { res.statusCode = code; return res; };
-  res.json = (body) => { res.body = body; return res; };
+  res.status = jest.fn().mockReturnValue(res);
+  res.json = jest.fn().mockReturnValue(res);
   return res;
 }
 
-test("utilise le status/message de l'erreur quand ils sont présents", (t) => {
-  t.mock.method(console, 'error', () => {});
-  const res = mockRes();
+describe('errorMiddleware', () => {
+  const consoleErrorOriginal = console.error;
+  beforeEach(() => {
+    console.error = jest.fn();
+  });
+  afterEach(() => {
+    console.error = consoleErrorOriginal;
+  });
 
-  errorMiddleware({ status: 404, message: 'Introuvable' }, {}, res, () => {});
+  it('utilise err.status quand il est présent', () => {
+    const res = reponseFake();
+    errorMiddleware(Object.assign(new Error('Interdit'), { status: 403 }), {}, res, jest.fn());
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith({ success: false, error: 'Interdit' });
+  });
 
-  assert.equal(res.statusCode, 404);
-  assert.deepEqual(res.body, { success: false, error: 'Introuvable' });
-});
+  it('utilise err.statusCode si err.status est absent', () => {
+    const res = reponseFake();
+    errorMiddleware(Object.assign(new Error('Non trouvé'), { statusCode: 404 }), {}, res, jest.fn());
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
 
-test('utilise statusCode si status est absent', (t) => {
-  t.mock.method(console, 'error', () => {});
-  const res = mockRes();
+  it('retombe sur 500 sans status ni statusCode', () => {
+    const res = reponseFake();
+    errorMiddleware(new Error('Boum'), {}, res, jest.fn());
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json).toHaveBeenCalledWith({ success: false, error: 'Boum' });
+  });
 
-  errorMiddleware({ statusCode: 403, message: 'Interdit' }, {}, res, () => {});
+  it('retombe sur un message générique sans message d\'erreur', () => {
+    const res = reponseFake();
+    const err = new Error();
+    err.message = '';
+    errorMiddleware(err, {}, res, jest.fn());
+    expect(res.json).toHaveBeenCalledWith({ success: false, error: 'Erreur interne du serveur' });
+  });
 
-  assert.equal(res.statusCode, 403);
-});
-
-test('utilise 500 et un message générique par défaut', (t) => {
-  t.mock.method(console, 'error', () => {});
-  const res = mockRes();
-
-  errorMiddleware({}, {}, res, () => {});
-
-  assert.equal(res.statusCode, 500);
-  assert.equal(res.body.error, 'Erreur interne du serveur');
-});
-
-test('journalise toujours l\'erreur (console.error)', (t) => {
-  const logErreur = t.mock.method(console, 'error', () => {});
-  const res = mockRes();
-
-  errorMiddleware(new Error('trace'), {}, res, () => {});
-
-  assert.equal(logErreur.mock.callCount(), 1);
+  it('journalise l\'erreur', () => {
+    const res = reponseFake();
+    errorMiddleware(new Error('trace'), {}, res, jest.fn());
+    expect(console.error).toHaveBeenCalled();
+  });
 });

@@ -1,8 +1,9 @@
 # L'intégration continue du backend Seats. GitHub exécute ce fichier à chaque push.
 #
 # Deux jobs, chacun sur une machine neuve :
-#   test   installe le projet, génère le client Prisma et lance `npm test`.
-#          Les tests mockent Prisma : aucune base n'est nécessaire.
+#   test   installe le projet et lance `npm test` (Jest).
+#          Prisma est simulé (src/lib/__mocks__/prisma.js) : le vrai client généré n'est jamais requis
+#          par les tests, donc --ignore-scripts (pas de "prisma generate") et aucun secret nécessaire.
 #   image  construit l'image Docker et la publie sur ghcr.io. Ne tourne que
 #          si `test` a réussi, et seulement sur main.
 
@@ -17,11 +18,6 @@ jobs:
     defaults:
       run:
         working-directory: backend
-    # DIRECT_URL au niveau du job (pas juste d'une étape) : le postinstall de `npm ci` lance déjà
-    # `prisma generate`, qui lit ce config via prisma.config.ts et échoue sans elle — même si aucune
-    # vraie base n'est jamais contactée pour générer le client ou lancer les tests (Prisma est simulé).
-    env:
-      DIRECT_URL: postgresql://build:build@localhost:5432/build
     steps:
       - uses: actions/checkout@v7
 
@@ -31,7 +27,7 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm test
 
   image:

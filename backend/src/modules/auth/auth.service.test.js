@@ -1,73 +1,73 @@
-const { test } = require('node:test');
-const assert = require('node:assert/strict');
+jest.mock('../../lib/prisma');
+
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const prisma = require('../../lib/prisma');
 const { jwtSecret } = require('../../config/env');
 const { register, login } = require('./auth.service');
 
-// Les 4 test.todo précédents sont maintenant couverts ci-dessous : register()/login() ne sont plus
-// des TODO, ils hachent le mot de passe et gèrent le JWT pour de vrai (#1, #28).
-//
-// prisma.utilisateur est un Proxy : son descripteur de propriété renvoie toujours `value: undefined`,
-// ce qui casse t.mock.method(). On remplace donc la méthode par simple affectation (t.mock.fn() donne
-// le même suivi des appels, .mock.calls etc.).
+describe('register', () => {
+  it('hache le mot de passe avant de le stocker, et ne le renvoie jamais', async () => {
+    const data = { email: 'a@b.com', motDePasse: 'secret', nom: 'D', prenom: 'J', role: 'spectateur' };
+    prisma.utilisateur.create.mockImplementation(async (args) => ({ id: 1, ...args.data }));
 
-test('register() hache le mot de passe avant de le stocker, et ne le renvoie jamais', async (t) => {
-  const data = { email: 'a@b.com', motDePasse: 'secret', nom: 'D', prenom: 'J', role: 'spectateur' };
-  const creation = prisma.utilisateur.create = t.mock.fn(async (args) => ({ id: 1, ...args.data }));
+    const cree = await register(data);
 
-  const cree = await register(data);
-
-  assert.equal(cree.motDePasse, undefined);
-  const donneesEnvoyees = creation.mock.calls[0].arguments[0].data;
-  assert.notEqual(donneesEnvoyees.motDePasse, 'secret');
-  assert.equal(await bcrypt.compare('secret', donneesEnvoyees.motDePasse), true);
-});
-
-test('register() rejette un champ requis manquant', async () => {
-  await assert.rejects(
-    () => register({ email: 'a@b.com', nom: 'D', prenom: 'J', role: 'spectateur' }),
-    (err) => err.status === 400 && /motDePasse/.test(err.message),
-  );
-});
-
-test('register() rejette un courriel déjà utilisé, avec un message clair', async (t) => {
-  prisma.utilisateur.create = t.mock.fn(async () => {
-    throw Object.assign(new Error('unique constraint'), { code: 'P2002' });
+    expect(cree.motDePasse).toBeUndefined();
+    const donneesEnvoyees = prisma.utilisateur.create.mock.calls[0][0].data;
+    expect(donneesEnvoyees.motDePasse).not.toBe('secret');
+    expect(await bcrypt.compare('secret', donneesEnvoyees.motDePasse)).toBe(true);
   });
 
-  await assert.rejects(
-    () => register({ email: 'a@b.com', motDePasse: 'secret', nom: 'D', prenom: 'J', role: 'spectateur' }),
-    (err) => err.status === 409 && /existe déjà/.test(err.message),
-  );
-});
-
-test('login() génère un token JWT à la connexion réussie, sans le mot de passe', async (t) => {
-  const hash = await bcrypt.hash('secret', 4);
-  prisma.utilisateur.findUnique = t.mock.fn(async (args) => {
-    assert.deepEqual(args, { where: { email: 'a@b.com' } });
-    return { id: 1, email: 'a@b.com', motDePasse: hash, role: 'spectateur' };
+  it('rejette un champ requis manquant', async () => {
+    await expect(register({ email: 'a@b.com', nom: 'D', prenom: 'J', role: 'spectateur' })).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringMatching(/motDePasse/),
+    });
   });
 
-  const resultat = await login('a@b.com', 'secret');
+  it('rejette un courriel déjà utilisé, avec un message clair', async () => {
+    prisma.utilisateur.create.mockRejectedValue(Object.assign(new Error('unique constraint'), { code: 'P2002' }));
 
-  assert.equal(resultat.user.motDePasse, undefined);
-  const payload = jwt.verify(resultat.token, jwtSecret); // lève si signature/expiration invalide
-  assert.equal(payload.userId, 1);
-  assert.equal(payload.role, 'spectateur');
-  assert.equal(payload.exp - payload.iat, 3600); // expiresIn: '1h'
+    await expect(
+      register({ email: 'a@b.com', motDePasse: 'secret', nom: 'D', prenom: 'J', role: 'spectateur' }),
+    ).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/existe déjà/) });
+  });
 });
 
-test("login() rejette (401 générique) un courriel qui n'existe pas", async (t) => {
-  prisma.utilisateur.findUnique = t.mock.fn(async () => null);
+describe('login', () => {
+  it('génère un token JWT à la connexion réussie, sans le mot de passe', async () => {
+    const hash = await bcrypt.hash('secret', 4);
+    prisma.utilisateur.findUnique.mockImplementation(async (args) => {
+      expect(args).toEqual({ where: { email: 'a@b.com' } });
+      return { id: 1, email: 'a@b.com', motDePasse: hash, role: 'spectateur' };
+    });
 
-  await assert.rejects(() => login('inconnu@b.com', 'x'), (err) => err.status === 401 && /invalide/.test(err.message));
-});
+    const resultat = await login('a@b.com', 'secret');
 
-test('login() rejette (même 401 générique) un mot de passe incorrect, sans révéler que le courriel existe', async (t) => {
-  const hash = await bcrypt.hash('secret', 4);
-  prisma.utilisateur.findUnique = t.mock.fn(async () => ({ id: 1, email: 'a@b.com', motDePasse: hash }));
+    expect(resultat.user.motDePasse).toBeUndefined();
+    const payload = jwt.verify(resultat.token, jwtSecret); // lève si signature/expiration invalide
+    expect(payload.userId).toBe(1);
+    expect(payload.role).toBe('spectateur');
+    expect(payload.exp - payload.iat).toBe(3600); // expiresIn: '1h'
+  });
 
-  await assert.rejects(() => login('a@b.com', 'mauvais'), (err) => err.status === 401 && /invalide/.test(err.message));
+  it("rejette (401 générique) un courriel qui n'existe pas", async () => {
+    prisma.utilisateur.findUnique.mockResolvedValue(null);
+
+    await expect(login('inconnu@b.com', 'x')).rejects.toMatchObject({
+      status: 401,
+      message: expect.stringMatching(/invalide/),
+    });
+  });
+
+  it('rejette (même 401 générique) un mot de passe incorrect, sans révéler que le courriel existe', async () => {
+    const hash = await bcrypt.hash('secret', 4);
+    prisma.utilisateur.findUnique.mockResolvedValue({ id: 1, email: 'a@b.com', motDePasse: hash });
+
+    await expect(login('a@b.com', 'mauvais')).rejects.toMatchObject({
+      status: 401,
+      message: expect.stringMatching(/invalide/),
+    });
+  });
 });
