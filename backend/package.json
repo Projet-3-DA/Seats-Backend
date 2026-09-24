@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "scripts": {
     "start": "node src/server.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
     "postinstall": "prisma generate"
   },
   "dependencies": {
@@ -15,6 +17,15 @@
     "ws": "^8.18.1"
   },
   "devDependencies": {
-    "prisma": "^7.10.0"
+    "jest": "^30.5.2",
+    "prisma": "^7.10.0",
+    "supertest": "^7.3.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "clearMocks": true,
+    "testPathIgnorePatterns": [
+      "/node_modules/"
+    ]
   }
 }
