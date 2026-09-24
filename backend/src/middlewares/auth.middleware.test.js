@@ -1,48 +1,92 @@
-const { test } = require('node:test');
-const assert = require('node:assert/strict');
+const jwt = require('jsonwebtoken');
+const { jwtSecret } = require('../config/env');
 const authMiddleware = require('./auth.middleware');
 
-// À écrire une fois le JWT vérifié (le middleware ne fait encore que checker
-// la présence du header, voir le TODO dans auth.middleware.js) :
-test.todo('rejette un token JWT invalide ou expiré (#9)');
-test.todo('injecte req.user à partir du token décodé quand il est valide (#9)');
-
-function mockRes() {
+function reponseFake() {
   const res = {};
-  res.status = (code) => { res.statusCode = code; return res; };
-  res.json = (body) => { res.body = body; return res; };
+  res.status = jest.fn().mockReturnValue(res);
+  res.json = jest.fn().mockReturnValue(res);
   return res;
 }
 
-test("rejette les requêtes sans en-tête Authorization", () => {
-  const req = { headers: {} };
-  const res = mockRes();
-  let nextCalled = false;
+function jeton(payload, options) {
+  return jwt.sign(payload, jwtSecret, options);
+}
 
-  authMiddleware(req, res, () => { nextCalled = true; });
+describe('authMiddleware', () => {
+  it('refuse avec 401 quand l\'en-tête Authorization est absent', () => {
+    const req = { headers: {} };
+    const res = reponseFake();
+    const next = jest.fn();
 
-  assert.equal(nextCalled, false);
-  assert.equal(res.statusCode, 401);
-  assert.equal(res.body.success, false);
-});
+    authMiddleware(req, res, next);
 
-test("rejette un en-tête qui n'est pas un token Bearer", () => {
-  const req = { headers: { authorization: 'Basic abc' } };
-  const res = mockRes();
-  let nextCalled = false;
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ success: false, error: expect.any(String) }),
+    );
+    expect(next).not.toHaveBeenCalled();
+  });
 
-  authMiddleware(req, res, () => { nextCalled = true; });
+  it.each([
+    ['sans le préfixe Bearer', 'Basic abc123'],
+    ['vide', ''],
+  ])('refuse avec 401 quand le token est %s', (_label, authorization) => {
+    const req = { headers: { authorization } };
+    const res = reponseFake();
+    const next = jest.fn();
 
-  assert.equal(nextCalled, false);
-  assert.equal(res.statusCode, 401);
-});
+    authMiddleware(req, res, next);
 
-test('appelle next() quand un token Bearer est présent', () => {
-  const req = { headers: { authorization: 'Bearer sometoken' } };
-  const res = mockRes();
-  let nextCalled = false;
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
 
-  authMiddleware(req, res, () => { nextCalled = true; });
+  it('refuse avec 401 un token invalide (signature incorrecte)', () => {
+    const req = { headers: { authorization: 'Bearer un-token-invalide' } };
+    const res = reponseFake();
+    const next = jest.fn();
 
-  assert.equal(nextCalled, true);
+    authMiddleware(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('refuse avec 401 un token expiré', () => {
+    const token = jeton({ userId: 1, role: 'spectateur' }, { expiresIn: -10 });
+    const req = { headers: { authorization: `Bearer ${token}` } };
+    const res = reponseFake();
+    const next = jest.fn();
+
+    authMiddleware(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('refuse avec 401 un token signé avec une autre clé', () => {
+    const token = jwt.sign({ userId: 1, role: 'spectateur' }, 'une-autre-cle');
+    const req = { headers: { authorization: `Bearer ${token}` } };
+    const res = reponseFake();
+    const next = jest.fn();
+
+    authMiddleware(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('accepte un token valide, remplit req.user et appelle next()', () => {
+    const token = jeton({ userId: 42, role: 'organisateur' });
+    const req = { headers: { authorization: `Bearer ${token}` } };
+    const res = reponseFake();
+    const next = jest.fn();
+
+    authMiddleware(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(req.user).toEqual({ id: 42, role: 'organisateur' });
+  });
 });
