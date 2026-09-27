@@ -6,7 +6,6 @@ const { getAllSalles, createSalle } = require('./salles.service');
 // "rejette une salle sans aucun siège" est déjà couvert dans salles.validation.test.js
 // (nombreRangees/siegesParRangee > 0), avant que le service soit appelé.
 it.todo("l'unicité (organisateurId, nom) est une contrainte DB (@@unique) : pas testable avec Prisma simulé (#2)");
-it.todo("getAllSalles() ne retourne que les salles de l'organisateur courant (#25)");
 it.todo("updateSalle() modifie une salle tant qu'aucun événement ne l'utilise (#10)");
 it.todo("updateSalle() refuse la modification si la salle est déjà utilisée par un événement (#10)");
 it.todo('assignerSection() assigne un groupe de sièges à une section nommée avec un prix (#11)');
@@ -16,8 +15,16 @@ describe('getAllSalles', () => {
     const rows = [{ id: 1, nom: 'Salle A', sieges: [] }];
     prisma.salle.findMany.mockResolvedValue(rows);
 
-    await expect(getAllSalles()).resolves.toEqual(rows);
-    expect(prisma.salle.findMany).toHaveBeenCalledWith({ include: { sieges: true } });
+    await expect(getAllSalles(1)).resolves.toEqual(rows);
+    expect(prisma.salle.findMany).toHaveBeenCalledWith({ where: { organisateurId: 1 }, include: { sieges: true } });
+  });
+
+  it("ne retourne que les salles de l'organisateur courant (#25)", async () => {
+    prisma.salle.findMany.mockResolvedValue([]);
+
+    await getAllSalles(42);
+
+    expect(prisma.salle.findMany).toHaveBeenCalledWith({ where: { organisateurId: 42 }, include: { sieges: true } });
   });
 });
 
