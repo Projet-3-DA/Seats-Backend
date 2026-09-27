@@ -24,10 +24,14 @@ const prisma = {
     create: jest.fn(),
     findMany: jest.fn(),
   },
-  // Exécute le callback avec le même mock en guise de transaction (tx) : les modules qui font
-  // `prisma.$transaction(async (tx) => { await tx.salle.create(...) })` peuvent être testés en
-  // configurant directement prisma.salle.create, sans rien connaître d'une vraie transaction.
-  $transaction: jest.fn((callback) => callback(prisma)),
+  // Supporte les deux formes de `prisma.$transaction` :
+  //  - callback : `prisma.$transaction(async (tx) => { await tx.salle.create(...) })`, testable en
+  //    configurant directement prisma.salle.create, sans rien connaître d'une vraie transaction.
+  //  - tableau : `prisma.$transaction([promesse1, promesse2])`, résolu comme Promise.all (si l'une
+  //    des promesses rejette, toute la transaction rejette, comme la vraie annulation Prisma).
+  $transaction: jest.fn((operations) =>
+    Array.isArray(operations) ? Promise.all(operations) : operations(prisma),
+  ),
 };
 
 module.exports = prisma;

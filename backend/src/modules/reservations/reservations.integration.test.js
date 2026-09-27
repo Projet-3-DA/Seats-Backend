@@ -1,21 +1,22 @@
 // Test d'intégration contre un VRAI Postgres (pas de mock ici) : contrairement au reste de la suite,
 // celui-ci a besoin d'une vraie base migrée, accessible via DATABASE_URL. Objectif : prouver que la
-// contrainte @@unique([siegeId, evenementId]) tient réellement sous une confirmation concurrente
-// (#16, #27, #38) — un mock ne peut pas simuler un verrouillage de ligne réel.
+// contrainte @@unique([siegeId, evenementId]) tient réellement sous une confirmation concurrente,
+// pour une réservation d'un seul siège comme de plusieurs à la fois (#6, #16, #27, #38) — un mock ne
+// peut pas simuler un verrouillage de ligne réel.
 //
 // Exclu de `npm test` (voir testPathIgnorePatterns dans package.json) : lancé séparément avec
-// `npm run test:integration`, une fois une vraie base disponible (voir docs/local-postgres dans le
-// message de commit, ou le job "test-integration" de la CI).
+// `npm run test:integration`, une fois une vraie base disponible (voir docker-compose.yml à la racine
+// du dépôt, ou le job "test-integration" de la CI).
 
 const prisma = require('../../lib/prisma');
-const { createReservation } = require('./reservations.service');
+const { reserverSieges } = require('./reservations.service');
 
 const SUFFIXE = Date.now(); // évite les collisions d'email/nom si la base n'est pas parfaitement vide
 
 let organisateur;
 let spectateur;
 let salle;
-let siege;
+let sieges; // [siege1, siege2, siege3]
 let evenement;
 
 beforeAll(async () => {
@@ -38,11 +39,13 @@ beforeAll(async () => {
     },
   });
   salle = await prisma.salle.create({
-    data: { organisateurId: organisateur.id, nom: `Salle test ${SUFFIXE}`, nombreRangees: 1, siegesParRangee: 1 },
+    data: { organisateurId: organisateur.id, nom: `Salle test ${SUFFIXE}`, nombreRangees: 1, siegesParRangee: 3 },
   });
-  siege = await prisma.siege.create({
-    data: { salleId: salle.id, numeroRangee: 1, numeroColonne: 1 },
-  });
+  sieges = await Promise.all(
+    [1, 2, 3].map((numeroColonne) =>
+      prisma.siege.create({ data: { salleId: salle.id, numeroRangee: 1, numeroColonne } }),
+    ),
+  );
   evenement = await prisma.evenement.create({
     data: {
       organisateurId: organisateur.id,
@@ -58,35 +61,64 @@ afterAll(async () => {
   // Sans casse même si le test a échoué avant d'avoir tout créé.
   await prisma.reservation.deleteMany({ where: { evenementId: evenement?.id } });
   if (evenement) await prisma.evenement.delete({ where: { id: evenement.id } });
-  if (siege) await prisma.siege.delete({ where: { id: siege.id } });
+  await prisma.siege.deleteMany({ where: { salleId: salle?.id } });
   if (salle) await prisma.salle.delete({ where: { id: salle.id } });
   if (spectateur) await prisma.utilisateur.delete({ where: { id: spectateur.id } });
   if (organisateur) await prisma.utilisateur.delete({ where: { id: organisateur.id } });
   await prisma.$disconnect();
 });
 
-test('une seule des deux confirmations concurrentes sur le même siège réussit (contrainte DB)', async () => {
-  const donneesReservation = {
-    spectateurId: spectateur.id,
-    siegeId: siege.id,
-    evenementId: evenement.id,
-    statut: 'confirmee',
-    delaiExpiration: new Date(Date.now() + 15 * 60_000),
-  };
+afterEach(async () => {
+  // Chaque test réserve un jeu de sièges différent, mais on nettoie quand même par précaution.
+  await prisma.reservation.deleteMany({ where: { evenementId: evenement.id } });
+});
 
-  const resultats = await Promise.allSettled([
-    createReservation(donneesReservation),
-    createReservation(donneesReservation),
-  ]);
+test('réserve plusieurs sièges libres en une seule fois', async () => {
+  const [siege1, siege2] = sieges;
+
+  const reservations = await reserverSieges({
+    spectateurId: spectateur.id,
+    evenementId: evenement.id,
+    siegeIds: [siege1.id, siege2.id],
+  });
+
+  expect(reservations).toHaveLength(2);
+  const enBase = await prisma.reservation.findMany({ where: { evenementId: evenement.id } });
+  expect(enBase).toHaveLength(2);
+  expect(enBase.map((r) => r.siegeId).sort()).toEqual([siege1.id, siege2.id].sort());
+});
+
+test('une seule des deux confirmations concurrentes sur le même siège réussit (contrainte DB)', async () => {
+  const [siege1] = sieges;
+  const demande = { spectateurId: spectateur.id, evenementId: evenement.id, siegeIds: [siege1.id] };
+
+  const resultats = await Promise.allSettled([reserverSieges(demande), reserverSieges(demande)]);
 
   const reussies = resultats.filter((r) => r.status === 'fulfilled');
   const echouees = resultats.filter((r) => r.status === 'rejected');
-
   expect(reussies).toHaveLength(1);
   expect(echouees).toHaveLength(1);
-  expect(echouees[0].reason.code).toBe('P2002'); // violation de contrainte unique, pas une autre erreur
+  expect(echouees[0].reason.status).toBe(409);
 
-  // La base reflète bien une seule réservation pour ce siège+évènement, pas deux ni zéro.
-  const enBase = await prisma.reservation.findMany({ where: { siegeId: siege.id, evenementId: evenement.id } });
+  const enBase = await prisma.reservation.findMany({ where: { evenementId: evenement.id, siegeId: siege1.id } });
   expect(enBase).toHaveLength(1);
+});
+
+test('une réservation multi-sièges concurrente est tout ou rien : jamais de doublon ni de doublon partiel', async () => {
+  const [siege1, siege2] = sieges;
+  const demande = {
+    spectateurId: spectateur.id,
+    evenementId: evenement.id,
+    siegeIds: [siege1.id, siege2.id],
+  };
+
+  const resultats = await Promise.allSettled([reserverSieges(demande), reserverSieges(demande)]);
+
+  const reussies = resultats.filter((r) => r.status === 'fulfilled');
+  expect(reussies).toHaveLength(1);
+
+  // Exactement les 2 sièges demandés sont réservés, jamais 4 (les deux tentatives) ni 1 (une transaction
+  // à moitié appliquée) : la transaction Prisma annule tout dès qu'une des créations échoue.
+  const enBase = await prisma.reservation.findMany({ where: { evenementId: evenement.id } });
+  expect(enBase).toHaveLength(2);
 });
