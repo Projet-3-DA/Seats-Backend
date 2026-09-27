@@ -3,7 +3,7 @@ const { validateCreateSalle } = require('./salles.validation');
 
 async function getSalles(req, res, next) {
   try {
-    const salles = await sallesService.getAllSalles();
+    const salles = await sallesService.getAllSalles(req.user.id);
     res.json({ success: true, data: salles });
   } catch (error) {
     next(error);

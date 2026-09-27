@@ -1,8 +1,10 @@
 jest.mock('../../lib/prisma');
 
+const jwt = require('jsonwebtoken');
 const request = require('supertest');
 const app = require('../../app');
 const prisma = require('../../lib/prisma');
+const { jwtSecret } = require('../../config/env');
 
 function corpsValide(overrides = {}) {
   return {
@@ -14,15 +16,27 @@ function corpsValide(overrides = {}) {
   };
 }
 
+function jeton(userId, role = 'organisateur') {
+  return jwt.sign({ userId, role }, jwtSecret);
+}
+
 describe('GET /api/salles', () => {
-  it('renvoie la liste des salles', async () => {
+  it('refuse avec 401 sans token', async () => {
+    const res = await request(app).get('/api/salles');
+
+    expect(res.status).toBe(401);
+    expect(prisma.salle.findMany).not.toHaveBeenCalled();
+  });
+
+  it("renvoie uniquement les salles de l'organisateur authentifié (#25)", async () => {
     const liste = [{ id: 19, nom: 'Salle A', sieges: [] }];
     prisma.salle.findMany.mockResolvedValue(liste);
 
-    const res = await request(app).get('/api/salles');
+    const res = await request(app).get('/api/salles').set('Authorization', `Bearer ${jeton(19)}`);
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ success: true, data: liste });
+    expect(prisma.salle.findMany).toHaveBeenCalledWith({ where: { organisateurId: 19 }, include: { sieges: true } });
   });
 });
 

@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const sallesController = require('./salles.controller');
+const authMiddleware = require('../../middlewares/auth.middleware');
 
-router.get('/', sallesController.getSalles);
+router.get('/', authMiddleware, sallesController.getSalles);
 router.post('/', sallesController.createSalle);
 
 module.exports = router;
