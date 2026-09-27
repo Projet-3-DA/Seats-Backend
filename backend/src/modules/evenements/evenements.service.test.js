@@ -1,7 +1,7 @@
 jest.mock('../../lib/prisma');
 
 const prisma = require('../../lib/prisma');
-const { getAllEvenements, createEvenement } = require('./evenements.service');
+const { getAllEvenements, createEvenement, getPlanSalle } = require('./evenements.service');
 
 // "refuse une date passée" et "refuse la publication sans salle attribuée" sont couverts, mais dans
 // evenements.validation.test.js (c'est validateCreateEvenement qui s'en charge, avant que le service
@@ -46,5 +46,68 @@ describe('createEvenement', () => {
     prisma.salle.findUnique.mockResolvedValue({ id: 19, organisateurId: 2 });
 
     await expect(createEvenement(data)).rejects.toMatchObject({ status: 403 });
+  });
+});
+
+describe('getPlanSalle', () => {
+  it('renvoie null si l\'événement n\'existe pas', async () => {
+    prisma.evenement.findUnique.mockResolvedValue(null);
+
+    await expect(getPlanSalle(999)).resolves.toBeNull();
+  });
+
+  it('distingue libre, en sélection active et réservé (#26, #30, #31)', async () => {
+    prisma.evenement.findUnique.mockResolvedValue({
+      id: 1,
+      salle: {
+        id: 19,
+        nom: 'Salle A',
+        sieges: [
+          { id: 101, numeroRangee: 1, numeroColonne: 1 },
+          { id: 102, numeroRangee: 1, numeroColonne: 2 },
+          { id: 103, numeroRangee: 1, numeroColonne: 3 },
+        ],
+      },
+      reservations: [
+        { siegeId: 101, statut: 'confirmee' },
+        { siegeId: 102, statut: 'en_selection' },
+      ],
+    });
+
+    await expect(getPlanSalle(1)).resolves.toEqual({
+      evenementId: 1,
+      salle: { id: 19, nom: 'Salle A' },
+      sieges: [
+        { id: 101, rangee: 1, colonne: 1, etat: 'reserve' },
+        { id: 102, rangee: 1, colonne: 2, etat: 'en_selection' },
+        { id: 103, rangee: 1, colonne: 3, etat: 'libre' },
+      ],
+    });
+  });
+
+  it('ne charge que les réservations confirmées ou en sélection non expirée', async () => {
+    prisma.evenement.findUnique.mockResolvedValue({
+      id: 1,
+      salle: { id: 19, nom: 'Salle A', sieges: [] },
+      reservations: [],
+    });
+
+    await getPlanSalle(1);
+
+    expect(prisma.evenement.findUnique).toHaveBeenCalledWith({
+      where: { id: 1 },
+      include: {
+        salle: { include: { sieges: true } },
+        reservations: {
+          where: {
+            OR: [
+              { statut: 'confirmee' },
+              { statut: 'en_selection', delaiExpiration: { gt: expect.any(Date) } },
+            ],
+          },
+          select: { siegeId: true, statut: true },
+        },
+      },
+    });
   });
 });
