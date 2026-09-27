@@ -25,8 +25,24 @@ async function createSalle(req, res, next) {
     next(error);
   }
 }
+async function getSalleById(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ success: false, error: 'id invalide' });
+    }
+    const salle = await sallesService.getSalleById(id);
+    if (!salle) {
+      return res.status(404).json({ success: false, error: 'Salle introuvable' });
+    }
+    res.json({ success: true, data: salle });
+  } catch (error) {
+    next(error);
+  }
+}
 
 module.exports = {
   getSalles,
+  getSalleById,
   createSalle,
 };

@@ -29,8 +29,15 @@ async function createSalle({ organisateurId, nom, nombreRangees, siegesParRangee
     });
   });
 }
+async function getSalleById(id) {
+  return await prisma.salle.findUnique({
+    where: { id },
+    include: { sieges: true },
+  });
+}
 
 module.exports = {
   getAllSalles,
+  getSalleById,
   createSalle,
 };
