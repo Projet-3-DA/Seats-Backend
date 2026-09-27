@@ -122,3 +122,49 @@ test('une réservation multi-sièges concurrente est tout ou rien : jamais de do
   const enBase = await prisma.reservation.findMany({ where: { evenementId: evenement.id } });
   expect(enBase).toHaveLength(2);
 });
+
+// #27 : la garantie doit vivre dans la base elle-même, pas dans la logique applicative. On le prouve en
+// contournant complètement reserverSieges() et en tirant deux INSERT bruts en parallèle : même sans
+// aucune vérification côté service, la contrainte @@unique([siegeId, evenementId]) fait le travail seule.
+test('la contrainte unique protège même deux INSERT Prisma bruts, sans passer par reserverSieges()', async () => {
+  const [, , siege3] = sieges;
+  const donneesBrutes = {
+    spectateurId: spectateur.id,
+    siegeId: siege3.id,
+    evenementId: evenement.id,
+    statut: 'confirmee',
+    delaiExpiration: new Date(Date.now() + 15 * 60_000),
+  };
+
+  const resultats = await Promise.allSettled([
+    prisma.reservation.create({ data: donneesBrutes }),
+    prisma.reservation.create({ data: donneesBrutes }),
+  ]);
+
+  const reussies = resultats.filter((r) => r.status === 'fulfilled');
+  const echouees = resultats.filter((r) => r.status === 'rejected');
+  expect(reussies).toHaveLength(1);
+  expect(echouees).toHaveLength(1);
+  expect(echouees[0].reason.code).toBe('P2002');
+
+  const enBase = await prisma.reservation.findMany({ where: { siegeId: siege3.id, evenementId: evenement.id } });
+  expect(enBase).toHaveLength(1);
+});
+
+// #27 : « même en cas de requêtes simultanées » — pas juste deux, on vérifie que la garantie tient
+// aussi quand un lot de requêtes arrive en même temps sur le même siège.
+test('sur 10 tentatives simultanées pour le même siège, une seule aboutit', async () => {
+  const [siege1] = sieges;
+  const demande = { spectateurId: spectateur.id, evenementId: evenement.id, siegeIds: [siege1.id] };
+
+  const resultats = await Promise.allSettled(Array.from({ length: 10 }, () => reserverSieges(demande)));
+
+  const reussies = resultats.filter((r) => r.status === 'fulfilled');
+  const echouees = resultats.filter((r) => r.status === 'rejected');
+  expect(reussies).toHaveLength(1);
+  expect(echouees).toHaveLength(9);
+  echouees.forEach((r) => expect(r.reason.status).toBe(409));
+
+  const enBase = await prisma.reservation.findMany({ where: { siegeId: siege1.id, evenementId: evenement.id } });
+  expect(enBase).toHaveLength(1);
+});
