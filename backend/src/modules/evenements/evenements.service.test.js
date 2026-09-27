@@ -50,13 +50,15 @@ describe('createEvenement', () => {
 });
 
 describe('getPlanSalle', () => {
+  it.todo("distingue un siège en_selection par un autre spectateur (#26, #30, #31)");
+
   it('renvoie null si l\'événement n\'existe pas', async () => {
     prisma.evenement.findUnique.mockResolvedValue(null);
 
     await expect(getPlanSalle(999)).resolves.toBeNull();
   });
 
-  it('distingue libre, en sélection active et réservé (#26, #30, #31)', async () => {
+  it('marque réservés les sièges confirmés et libres les autres', async () => {
     prisma.evenement.findUnique.mockResolvedValue({
       id: 1,
       salle: {
@@ -65,13 +67,9 @@ describe('getPlanSalle', () => {
         sieges: [
           { id: 101, numeroRangee: 1, numeroColonne: 1 },
           { id: 102, numeroRangee: 1, numeroColonne: 2 },
-          { id: 103, numeroRangee: 1, numeroColonne: 3 },
         ],
       },
-      reservations: [
-        { siegeId: 101, statut: 'confirmee' },
-        { siegeId: 102, statut: 'en_selection' },
-      ],
+      reservations: [{ siegeId: 101 }],
     });
 
     await expect(getPlanSalle(1)).resolves.toEqual({
@@ -79,13 +77,12 @@ describe('getPlanSalle', () => {
       salle: { id: 19, nom: 'Salle A' },
       sieges: [
         { id: 101, rangee: 1, colonne: 1, etat: 'reserve' },
-        { id: 102, rangee: 1, colonne: 2, etat: 'en_selection' },
-        { id: 103, rangee: 1, colonne: 3, etat: 'libre' },
+        { id: 102, rangee: 1, colonne: 2, etat: 'libre' },
       ],
     });
   });
 
-  it('ne charge que les réservations confirmées ou en sélection non expirée', async () => {
+  it('ne charge que les réservations confirmées', async () => {
     prisma.evenement.findUnique.mockResolvedValue({
       id: 1,
       salle: { id: 19, nom: 'Salle A', sieges: [] },
@@ -98,15 +95,7 @@ describe('getPlanSalle', () => {
       where: { id: 1 },
       include: {
         salle: { include: { sieges: true } },
-        reservations: {
-          where: {
-            OR: [
-              { statut: 'confirmee' },
-              { statut: 'en_selection', delaiExpiration: { gt: expect.any(Date) } },
-            ],
-          },
-          select: { siegeId: true, statut: true },
-        },
+        reservations: { where: { statut: 'confirmee' }, select: { siegeId: true } },
       },
     });
   });

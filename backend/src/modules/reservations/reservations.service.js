@@ -25,20 +25,6 @@ async function reserverSieges({ spectateurId, evenementId, siegeIds }) {
     throw httpError(400, `Ces sièges n'appartiennent pas à la salle de l'événement : ${siegesInconnus.join(', ')}.`);
   }
 
-  // Un siège est indisponible s'il est confirmé, ou "en sélection" par quelqu'un dont le délai n'est
-  // pas encore expiré (#26, #30, #31). Un siège expiré redevient libre sans tâche de nettoyage à part.
-  const reservationsExistantes = await prisma.reservation.findMany({
-    where: {
-      evenementId,
-      siegeId: { in: siegeIds },
-      OR: [{ statut: 'confirmee' }, { statut: 'en_selection', delaiExpiration: { gt: new Date() } }],
-    },
-  });
-  if (reservationsExistantes.length > 0) {
-    const siegesIndisponibles = reservationsExistantes.map((r) => r.siegeId);
-    throw httpError(409, `Ces sièges viennent d'être pris : ${siegesIndisponibles.join(', ')}.`);
-  }
-
   const delaiExpiration = new Date(Date.now() + DUREE_SELECTION_MS);
 
   try {
@@ -50,11 +36,10 @@ async function reserverSieges({ spectateurId, evenementId, siegeIds }) {
       ),
     );
   } catch (error) {
-    // Un autre spectateur a réservé un des sièges entre notre vérification et la transaction : la
-    // contrainte @@unique([siegeId, evenementId]) rejette l'insertion concernée, toute la transaction
-    // est annulée (#16, #27, #38).
+    // Un siège déjà réservé (confirmé ou en sélection par quelqu'un d'autre) viole la contrainte
+    // @@unique([siegeId, evenementId]) : Prisma lève P2002, toute la transaction est annulée (#16, #27, #38).
     if (error.code === 'P2002') {
-      throw httpError(409, 'Un ou plusieurs sièges viennent d\'être pris entretemps.');
+      throw httpError(409, 'Un ou plusieurs sièges viennent d\'être pris.');
     }
     throw error;
   }

@@ -220,19 +220,4 @@ describe('GET /api/evenements/:id/plan', () => {
     });
   });
 
-  it('marque en_selection un siège tenu par quelqu\'un d\'autre (#26, #30, #31)', async () => {
-    prisma.evenement.findUnique.mockResolvedValue({
-      id: 1,
-      salle: {
-        id: 19,
-        nom: 'Salle A',
-        sieges: [{ id: 101, numeroRangee: 1, numeroColonne: 1 }],
-      },
-      reservations: [{ siegeId: 101, statut: 'en_selection' }],
-    });
-
-    const res = await request(app).get('/api/evenements/1/plan');
-
-    expect(res.body.data.sieges).toEqual([{ id: 101, rangee: 1, colonne: 1, etat: 'en_selection' }]);
-  });
 });

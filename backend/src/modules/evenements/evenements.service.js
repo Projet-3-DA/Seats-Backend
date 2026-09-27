@@ -29,20 +29,16 @@ async function getPlanSalle(evenementId) {
     where: { id: evenementId },
     include: {
       salle: { include: { sieges: true } },
-      // Un siège "en_selection" dont le délai n'est pas expiré bloque aussi la sélection (#26, #30, #31) ;
-      // une sélection expirée n'est pas incluse et le siège redevient "libre" sans tâche de nettoyage à part.
       reservations: {
-        where: { OR: [{ statut: 'confirmee' }, { statut: 'en_selection', delaiExpiration: { gt: new Date() } }] },
-        select: { siegeId: true, statut: true },
+        where: { statut: 'confirmee' },
+        select: { siegeId: true },
       },
     },
   });
 
   if (!evenement) return null;
 
-  const etatParSiege = new Map(
-    evenement.reservations.map((r) => [r.siegeId, r.statut === 'confirmee' ? 'reserve' : 'en_selection']),
-  );
+  const siegesReserves = new Set(evenement.reservations.map((r) => r.siegeId));
 
   return {
     evenementId: evenement.id,
@@ -51,7 +47,7 @@ async function getPlanSalle(evenementId) {
       id: s.id,
       rangee: s.numeroRangee,
       colonne: s.numeroColonne,
-      etat: etatParSiege.get(s.id) ?? 'libre',
+      etat: siegesReserves.has(s.id) ? 'reserve' : 'libre',
     })),
   };
 }

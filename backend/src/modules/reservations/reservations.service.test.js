@@ -6,6 +6,8 @@ const { getReservationsByUser, reserverSieges } = require('./reservations.servic
 it.todo('cancelReservation() libère les sièges et refuse si la réservation ne m\'appartient pas (#12)');
 it.todo("cancelReservation() permet à l'organisateur d'annuler une réservation de ses événements (#14)");
 it.todo("getReservationsByUser() étiquette une réservation d'événement passé comme terminée (#7)");
+it.todo("reserverSieges() empêche de sélectionner un siège déjà en sélection par un autre (#26, #30, #31)");
+it.todo('reserverSieges() libère un siège dont la sélection a expiré sans confirmation (#15, #32)');
 
 describe('getReservationsByUser', () => {
   it('liste les réservations d\'un spectateur', async () => {
@@ -32,7 +34,6 @@ describe('reserverSieges', () => {
 
   it('réserve tous les sièges demandés en une seule transaction', async () => {
     prisma.evenement.findUnique.mockResolvedValue(evenement);
-    prisma.reservation.findMany.mockResolvedValue([]); // aucun conflit
     const creees = [
       { id: 1, spectateurId: 5, siegeId: 101, evenementId: 1, statut: 'en_selection' },
       { id: 2, spectateurId: 5, siegeId: 102, evenementId: 1, statut: 'en_selection' },
@@ -64,36 +65,8 @@ describe('reserverSieges', () => {
     expect(prisma.reservation.create).not.toHaveBeenCalled();
   });
 
-  it('refuse un siège déjà réservé ou en sélection (#26, #30, #31)', async () => {
-    prisma.evenement.findUnique.mockResolvedValue(evenement);
-    prisma.reservation.findMany.mockResolvedValue([{ siegeId: 102, statut: 'confirmee' }]);
-
-    await expect(reserverSieges(attendreSieges())).rejects.toMatchObject({ status: 409 });
-    expect(prisma.reservation.create).not.toHaveBeenCalled();
-  });
-
-  it('ignore une sélection expirée : le siège redevient réservable (#15, #32)', async () => {
-    prisma.evenement.findUnique.mockResolvedValue(evenement);
-    prisma.reservation.findMany.mockResolvedValue([]); // le filtre du service exclut déjà les expirés
-    prisma.reservation.create.mockResolvedValue({ id: 1 });
-
-    await expect(reserverSieges(attendreSieges({ siegeIds: [102] }))).resolves.toBeDefined();
-
-    expect(prisma.reservation.findMany).toHaveBeenCalledWith({
-      where: {
-        evenementId: 1,
-        siegeId: { in: [102] },
-        OR: [
-          { statut: 'confirmee' },
-          { statut: 'en_selection', delaiExpiration: { gt: expect.any(Date) } },
-        ],
-      },
-    });
-  });
-
   it("respecte l'unicité (siegeId, evenementId) sous confirmation concurrente (#16, #27, #38)", async () => {
     prisma.evenement.findUnique.mockResolvedValue(evenement);
-    prisma.reservation.findMany.mockResolvedValue([]);
     prisma.reservation.create.mockRejectedValue(Object.assign(new Error('unique constraint'), { code: 'P2002' }));
 
     await expect(reserverSieges(attendreSieges())).rejects.toMatchObject({ status: 409 });
