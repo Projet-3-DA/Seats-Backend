@@ -204,7 +204,7 @@ describe('GET /api/evenements/:id/plan', () => {
           { id: 102, numeroRangee: 1, numeroColonne: 2 },
         ],
       },
-      reservations: [{ siegeId: 101 }],
+      reservations: [{ siegeId: 101, statut: 'confirmee' }],
     });
 
     const res = await request(app).get('/api/evenements/1/plan');
@@ -219,4 +219,5 @@ describe('GET /api/evenements/:id/plan', () => {
       ],
     });
   });
+
 });

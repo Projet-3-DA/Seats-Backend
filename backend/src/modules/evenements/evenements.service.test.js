@@ -1,7 +1,7 @@
 jest.mock('../../lib/prisma');
 
 const prisma = require('../../lib/prisma');
-const { getAllEvenements, createEvenement } = require('./evenements.service');
+const { getAllEvenements, createEvenement, getPlanSalle } = require('./evenements.service');
 
 // "refuse une date passée" et "refuse la publication sans salle attribuée" sont couverts, mais dans
 // evenements.validation.test.js (c'est validateCreateEvenement qui s'en charge, avant que le service
@@ -46,5 +46,57 @@ describe('createEvenement', () => {
     prisma.salle.findUnique.mockResolvedValue({ id: 19, organisateurId: 2 });
 
     await expect(createEvenement(data)).rejects.toMatchObject({ status: 403 });
+  });
+});
+
+describe('getPlanSalle', () => {
+  it.todo("distingue un siège en_selection par un autre spectateur (#26, #30, #31)");
+
+  it('renvoie null si l\'événement n\'existe pas', async () => {
+    prisma.evenement.findUnique.mockResolvedValue(null);
+
+    await expect(getPlanSalle(999)).resolves.toBeNull();
+  });
+
+  it('marque réservés les sièges confirmés et libres les autres', async () => {
+    prisma.evenement.findUnique.mockResolvedValue({
+      id: 1,
+      salle: {
+        id: 19,
+        nom: 'Salle A',
+        sieges: [
+          { id: 101, numeroRangee: 1, numeroColonne: 1 },
+          { id: 102, numeroRangee: 1, numeroColonne: 2 },
+        ],
+      },
+      reservations: [{ siegeId: 101 }],
+    });
+
+    await expect(getPlanSalle(1)).resolves.toEqual({
+      evenementId: 1,
+      salle: { id: 19, nom: 'Salle A' },
+      sieges: [
+        { id: 101, rangee: 1, colonne: 1, etat: 'reserve' },
+        { id: 102, rangee: 1, colonne: 2, etat: 'libre' },
+      ],
+    });
+  });
+
+  it('ne charge que les réservations confirmées', async () => {
+    prisma.evenement.findUnique.mockResolvedValue({
+      id: 1,
+      salle: { id: 19, nom: 'Salle A', sieges: [] },
+      reservations: [],
+    });
+
+    await getPlanSalle(1);
+
+    expect(prisma.evenement.findUnique).toHaveBeenCalledWith({
+      where: { id: 1 },
+      include: {
+        salle: { include: { sieges: true } },
+        reservations: { where: { statut: 'confirmee' }, select: { siegeId: true } },
+      },
+    });
   });
 });
