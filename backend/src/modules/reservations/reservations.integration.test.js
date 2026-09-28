@@ -86,6 +86,10 @@ test('réserve plusieurs sièges libres en une seule fois', async () => {
   const enBase = await prisma.reservation.findMany({ where: { evenementId: evenement.id } });
   expect(enBase).toHaveLength(2);
   expect(enBase.map((r) => r.siegeId).sort()).toEqual([siege1.id, siege2.id].sort());
+  enBase.forEach((r) => {
+    expect(r.statut).toBe('confirmee');
+    expect(r.dateConfirmation).toBeInstanceOf(Date);
+  });
 });
 
 test('une seule des deux confirmations concurrentes sur le même siège réussit (contrainte DB)', async () => {

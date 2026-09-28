@@ -1,8 +1,6 @@
 const prisma = require('../../lib/prisma');
 const httpError = require('../../lib/http-error');
 
-const DUREE_SELECTION_MS = 15 * 60_000; // durée pendant laquelle un siège "en_selection" reste bloqué (#15, #32)
-
 async function getReservationsByUser(spectateurId) {
   return await prisma.reservation.findMany({
     where: { spectateurId },
@@ -10,8 +8,8 @@ async function getReservationsByUser(spectateurId) {
   });
 }
 
-// Réserve un ou plusieurs sièges libres pour un événement (#6). Tout ou rien : soit tous les sièges
-// demandés sont réservés, soit aucun ne l'est.
+// Enregistre la réservation confirmée d'un ou plusieurs sièges libres pour un événement (#6). Appelée au
+// clic sur « Confirmer » côté écran. Tout ou rien : soit tous les sièges demandés sont réservés, soit aucun.
 async function reserverSieges({ spectateurId, evenementId, siegeIds }) {
   const evenement = await prisma.evenement.findUnique({
     where: { id: evenementId },
@@ -25,13 +23,21 @@ async function reserverSieges({ spectateurId, evenementId, siegeIds }) {
     throw httpError(400, `Ces sièges n'appartiennent pas à la salle de l'événement : ${siegesInconnus.join(', ')}.`);
   }
 
-  const delaiExpiration = new Date(Date.now() + DUREE_SELECTION_MS);
+  // delaiExpiration est obligatoire en base mais n'a plus de sens pour une réservation déjà confirmée.
+  const maintenant = new Date();
 
   try {
     return await prisma.$transaction(
       siegeIds.map((siegeId) =>
         prisma.reservation.create({
-          data: { spectateurId, siegeId, evenementId, statut: 'en_selection', delaiExpiration },
+          data: {
+            spectateurId,
+            siegeId,
+            evenementId,
+            statut: 'confirmee',
+            dateConfirmation: maintenant,
+            delaiExpiration: maintenant,
+          },
         }),
       ),
     );

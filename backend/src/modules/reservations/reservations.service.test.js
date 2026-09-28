@@ -35,8 +35,8 @@ describe('reserverSieges', () => {
   it('réserve tous les sièges demandés en une seule transaction', async () => {
     prisma.evenement.findUnique.mockResolvedValue(evenement);
     const creees = [
-      { id: 1, spectateurId: 5, siegeId: 101, evenementId: 1, statut: 'en_selection' },
-      { id: 2, spectateurId: 5, siegeId: 102, evenementId: 1, statut: 'en_selection' },
+      { id: 1, spectateurId: 5, siegeId: 101, evenementId: 1, statut: 'confirmee' },
+      { id: 2, spectateurId: 5, siegeId: 102, evenementId: 1, statut: 'confirmee' },
     ];
     prisma.reservation.create.mockResolvedValueOnce(creees[0]).mockResolvedValueOnce(creees[1]);
 
@@ -44,11 +44,20 @@ describe('reserverSieges', () => {
 
     expect(prisma.reservation.create).toHaveBeenCalledTimes(2);
     expect(prisma.reservation.create).toHaveBeenNthCalledWith(1, {
-      data: expect.objectContaining({ spectateurId: 5, siegeId: 101, evenementId: 1, statut: 'en_selection' }),
+      data: expect.objectContaining({ spectateurId: 5, siegeId: 101, evenementId: 1, statut: 'confirmee' }),
     });
     expect(prisma.reservation.create).toHaveBeenNthCalledWith(2, {
-      data: expect.objectContaining({ spectateurId: 5, siegeId: 102, evenementId: 1, statut: 'en_selection' }),
+      data: expect.objectContaining({ spectateurId: 5, siegeId: 102, evenementId: 1, statut: 'confirmee' }),
     });
+  });
+
+  it('enregistre la date de confirmation avec la réservation', async () => {
+    prisma.evenement.findUnique.mockResolvedValue(evenement);
+    prisma.reservation.create.mockResolvedValue({ id: 1 });
+
+    await reserverSieges(attendreSieges({ siegeIds: [101] }));
+
+    expect(prisma.reservation.create.mock.calls[0][0].data.dateConfirmation).toBeInstanceOf(Date);
   });
 
   it("refuse si l'événement n'existe pas", async () => {
