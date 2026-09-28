@@ -172,3 +172,51 @@ test('sur 10 tentatives simultanées pour le même siège, une seule aboutit', a
   const enBase = await prisma.reservation.findMany({ where: { siegeId: siege1.id, evenementId: evenement.id } });
   expect(enBase).toHaveLength(1);
 });
+
+test("libère et remplace une ancienne sélection expirée (jamais confirmée) sur le siège demandé", async () => {
+  const [siege1] = sieges;
+  const passe = new Date(Date.now() - 2 * 3600_000);
+  await prisma.reservation.create({
+    data: { spectateurId: spectateur.id, siegeId: siege1.id, evenementId: evenement.id, statut: 'en_selection', delaiExpiration: passe },
+  });
+
+  const reservations = await reserverSieges({ spectateurId: spectateur.id, evenementId: evenement.id, siegeIds: [siege1.id] });
+
+  expect(reservations).toHaveLength(1);
+  const enBase = await prisma.reservation.findMany({ where: { siegeId: siege1.id, evenementId: evenement.id } });
+  expect(enBase).toHaveLength(1);
+  expect(enBase[0].statut).toBe('confirmee');
+  expect(enBase[0].dateConfirmation).toBeInstanceOf(Date);
+});
+
+test("ne touche pas à une sélection encore valide : le siège reste refusé (409) et la ligne intacte", async () => {
+  const [siege1] = sieges;
+  const futur = new Date(Date.now() + 10 * 60_000);
+  const existante = await prisma.reservation.create({
+    data: { spectateurId: spectateur.id, siegeId: siege1.id, evenementId: evenement.id, statut: 'en_selection', delaiExpiration: futur },
+  });
+
+  await expect(
+    reserverSieges({ spectateurId: spectateur.id, evenementId: evenement.id, siegeIds: [siege1.id] }),
+  ).rejects.toMatchObject({ status: 409 });
+
+  const enBase = await prisma.reservation.findMany({ where: { siegeId: siege1.id, evenementId: evenement.id } });
+  expect(enBase.map((r) => r.id)).toEqual([existante.id]);
+  expect(enBase[0].statut).toBe('en_selection');
+});
+
+test("ne libère jamais une réservation confirmée, même ancienne", async () => {
+  const [siege1] = sieges;
+  const passe = new Date(Date.now() - 2 * 3600_000);
+  await prisma.reservation.create({
+    data: { spectateurId: spectateur.id, siegeId: siege1.id, evenementId: evenement.id, statut: 'confirmee', dateConfirmation: passe, delaiExpiration: passe },
+  });
+
+  await expect(
+    reserverSieges({ spectateurId: spectateur.id, evenementId: evenement.id, siegeIds: [siege1.id] }),
+  ).rejects.toMatchObject({ status: 409 });
+
+  const enBase = await prisma.reservation.findMany({ where: { siegeId: siege1.id, evenementId: evenement.id } });
+  expect(enBase).toHaveLength(1);
+  expect(enBase[0].statut).toBe('confirmee');
+});

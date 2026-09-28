@@ -27,8 +27,20 @@ async function reserverSieges({ spectateurId, evenementId, siegeIds }) {
   const maintenant = new Date();
 
   try {
-    return await prisma.$transaction(
-      siegeIds.map((siegeId) =>
+    // Une sélection "en_selection" expirée (ancienne réservation jamais confirmée) occupe encore la
+    // contrainte @@unique([siegeId, evenementId]) alors que le plan affiche le siège libre : sans ce
+    // nettoyage, il serait refusé (409) pour toujours (#15, #32). Une sélection encore valide n'est
+    // pas touchée : elle bloque toujours le siège. Tout est dans la même transaction que les créations.
+    const [, ...reservations] = await prisma.$transaction([
+      prisma.reservation.deleteMany({
+        where: {
+          evenementId,
+          siegeId: { in: siegeIds },
+          statut: 'en_selection',
+          delaiExpiration: { lte: maintenant },
+        },
+      }),
+      ...siegeIds.map((siegeId) =>
         prisma.reservation.create({
           data: {
             spectateurId,
@@ -40,7 +52,8 @@ async function reserverSieges({ spectateurId, evenementId, siegeIds }) {
           },
         }),
       ),
-    );
+    ]);
+    return reservations;
   } catch (error) {
     // Un siège déjà réservé (confirmé ou en sélection par quelqu'un d'autre) viole la contrainte
     // @@unique([siegeId, evenementId]) : Prisma lève P2002, toute la transaction est annulée (#16, #27, #38).

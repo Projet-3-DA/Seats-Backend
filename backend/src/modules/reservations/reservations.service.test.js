@@ -60,6 +60,30 @@ describe('reserverSieges', () => {
     expect(prisma.reservation.create.mock.calls[0][0].data.dateConfirmation).toBeInstanceOf(Date);
   });
 
+  it('libère avant de créer les anciennes sélections expirées des sièges demandés', async () => {
+    prisma.evenement.findUnique.mockResolvedValue(evenement);
+    prisma.reservation.create.mockResolvedValue({ id: 1 });
+
+    await reserverSieges(attendreSieges({ siegeIds: [101, 102] }));
+
+    expect(prisma.reservation.deleteMany).toHaveBeenCalledWith({
+      where: {
+        evenementId: 1,
+        siegeId: { in: [101, 102] },
+        statut: 'en_selection',
+        delaiExpiration: { lte: expect.any(Date) },
+      },
+    });
+  });
+
+  it('ne renvoie que les réservations créées, pas le résultat du nettoyage', async () => {
+    prisma.evenement.findUnique.mockResolvedValue(evenement);
+    prisma.reservation.deleteMany.mockResolvedValue({ count: 3 });
+    prisma.reservation.create.mockResolvedValueOnce({ id: 1 }).mockResolvedValueOnce({ id: 2 });
+
+    await expect(reserverSieges(attendreSieges())).resolves.toEqual([{ id: 1 }, { id: 2 }]);
+  });
+
   it("refuse si l'événement n'existe pas", async () => {
     prisma.evenement.findUnique.mockResolvedValue(null);
 
