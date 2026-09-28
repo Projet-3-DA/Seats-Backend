@@ -5,20 +5,26 @@ const { getReservationsByUser, reserverSieges } = require('./reservations.servic
 
 it.todo('cancelReservation() libère les sièges et refuse si la réservation ne m\'appartient pas (#12)');
 it.todo("cancelReservation() permet à l'organisateur d'annuler une réservation de ses événements (#14)");
-it.todo("getReservationsByUser() étiquette une réservation d'événement passé comme terminée (#7)");
 it.todo("reserverSieges() empêche de sélectionner un siège déjà en sélection par un autre (#26, #30, #31)");
 it.todo('reserverSieges() libère un siège dont la sélection a expiré sans confirmation (#15, #32)');
 
 describe('getReservationsByUser', () => {
   it('liste les réservations d\'un spectateur', async () => {
-    const rows = [{ id: 1, spectateurId: 5, evenement: {}, siege: {} }];
+    const rows = [{ id: 1, spectateurId: 5, evenement: { dateHeure: new Date(Date.now() + 86_400_000) }, siege: {} }];
     prisma.reservation.findMany.mockResolvedValue(rows);
 
-    await expect(getReservationsByUser(5)).resolves.toEqual(rows);
+    await expect(getReservationsByUser(5)).resolves.toEqual([{ ...rows[0], terminee: false }]);
     expect(prisma.reservation.findMany).toHaveBeenCalledWith({
       where: { spectateurId: 5 },
       include: { evenement: true, siege: true },
     });
+  });
+
+  it("étiquette une réservation d'événement passé comme terminée (#7)", async () => {
+    const rows = [{ id: 2, spectateurId: 5, evenement: { dateHeure: new Date(Date.now() - 86_400_000) }, siege: {} }];
+    prisma.reservation.findMany.mockResolvedValue(rows);
+
+    await expect(getReservationsByUser(5)).resolves.toEqual([{ ...rows[0], terminee: true }]);
   });
 });
 

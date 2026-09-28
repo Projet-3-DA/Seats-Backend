@@ -4,10 +4,11 @@ const httpError = require('../../lib/http-error');
 const DUREE_SELECTION_MS = 15 * 60_000; // durée pendant laquelle un siège "en_selection" reste bloqué (#15, #32)
 
 async function getReservationsByUser(spectateurId) {
-  return await prisma.reservation.findMany({
+  const reservations = await prisma.reservation.findMany({
     where: { spectateurId },
     include: { evenement: true, siege: true },
   });
+  return reservations.map((r) => ({ ...r, terminee: r.evenement.dateHeure < new Date() }));
 }
 
 // Réserve un ou plusieurs sièges libres pour un événement (#6). Tout ou rien : soit tous les sièges

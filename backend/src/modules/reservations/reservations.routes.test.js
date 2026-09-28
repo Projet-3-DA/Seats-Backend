@@ -11,16 +11,26 @@ function jeton(payload) {
 }
 
 describe('GET /api/reservations', () => {
-  it('utilise l\'utilisateur 1 par défaut tant que l\'authentification n\'est pas branchée', async () => {
-    const liste = [{ id: 1, spectateurId: 1 }];
+  it('refuse sans authentification (401)', async () => {
+    const res = await request(app).get('/api/reservations');
+    expect(res.status).toBe(401);
+  });
+
+  it('renvoie les réservations du spectateur authentifié', async () => {
+    const liste = [{ id: 1, spectateurId: 5, evenement: { dateHeure: new Date(Date.now() + 86_400_000) } }];
     prisma.reservation.findMany.mockResolvedValue(liste);
 
-    const res = await request(app).get('/api/reservations');
+    const res = await request(app)
+      .get('/api/reservations')
+      .set('Authorization', `Bearer ${jeton({ userId: 5, role: 'spectateur' })}`);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ success: true, data: liste });
+    expect(res.body).toEqual({
+      success: true,
+      data: [{ ...liste[0], evenement: { dateHeure: liste[0].evenement.dateHeure.toISOString() }, terminee: false }],
+    });
     expect(prisma.reservation.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { spectateurId: 1 } }),
+      expect.objectContaining({ where: { spectateurId: 5 } }),
     );
   });
 });

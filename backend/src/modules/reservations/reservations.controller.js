@@ -3,7 +3,7 @@ const { validateReserverSieges } = require('./reservations.validation');
 
 async function getReservations(req, res, next) {
   try {
-    const list = await reservationsService.getReservationsByUser(req.user ? req.user.id : 1);
+    const list = await reservationsService.getReservationsByUser(req.user.id);
     res.json({ success: true, data: list });
   } catch (error) {
     next(error);
