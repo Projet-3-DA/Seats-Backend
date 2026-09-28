@@ -28,6 +28,7 @@ const prisma = {
     create: jest.fn(),
     createMany: jest.fn(),
     findMany: jest.fn(),
+    deleteMany: jest.fn(),
   },
   // Supporte les deux formes de `prisma.$transaction` :
   //  - callback : `prisma.$transaction(async (tx) => { await tx.salle.create(...) })`, testable en
