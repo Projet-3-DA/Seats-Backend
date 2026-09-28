@@ -6,6 +6,7 @@ const prisma = {
   utilisateur: {
     create: jest.fn(),
     findUnique: jest.fn(),
+    upsert: jest.fn(),
   },
   salle: {
     create: jest.fn(),
