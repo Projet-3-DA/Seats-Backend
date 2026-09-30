@@ -6,23 +6,29 @@ const prisma = {
   utilisateur: {
     create: jest.fn(),
     findUnique: jest.fn(),
+    upsert: jest.fn(),
   },
   salle: {
     create: jest.fn(),
     findUnique: jest.fn(),
     findMany: jest.fn(),
+    upsert: jest.fn(),
   },
   siege: {
     createMany: jest.fn(),
+    findMany: jest.fn(),
   },
   evenement: {
     create: jest.fn(),
     findMany: jest.fn(),
     findUnique: jest.fn(),
+    findFirst: jest.fn(),
   },
   reservation: {
     create: jest.fn(),
+    createMany: jest.fn(),
     findMany: jest.fn(),
+    deleteMany: jest.fn(),
   },
   // Supporte les deux formes de `prisma.$transaction` :
   //  - callback : `prisma.$transaction(async (tx) => { await tx.salle.create(...) })`, testable en

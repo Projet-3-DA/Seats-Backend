@@ -15,7 +15,9 @@ COPY prisma.config.ts ./
 RUN DIRECT_URL=postgresql://build:build@localhost:5432/build npx prisma generate
 
 COPY src ./src
+COPY docker-entrypoint.sh ./
 
 ENV PORT=3000
 EXPOSE 3000
-CMD ["node", "src/server.js"]
+# Applique les migrations et crée les comptes de démonstration avant de démarrer l'API.
+CMD ["sh", "docker-entrypoint.sh"]

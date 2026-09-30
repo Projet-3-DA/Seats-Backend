@@ -29,10 +29,16 @@ async function getPlanSalle(evenementId) {
     where: { id: evenementId },
     include: {
       salle: { include: { sieges: true } },
-      reservations: {
-        where: { statut: 'confirmee' },
-        select: { siegeId: true },
-      },
+     reservations: {
+  // Un siège est indisponible s'il est confirmé, ou en sélection avec un délai non expiré (#6, #30).
+  where: {
+    OR: [
+      { statut: 'confirmee' },
+      { statut: 'en_selection', delaiExpiration: { gt: new Date() } },
+    ],
+  },
+  select: { siegeId: true },
+},
     },
   });
 

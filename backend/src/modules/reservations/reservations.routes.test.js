@@ -64,8 +64,8 @@ describe('POST /api/reservations', () => {
     prisma.evenement.findUnique.mockResolvedValue(evenement);
     prisma.reservation.findMany.mockResolvedValue([]);
     const creees = [
-      { id: 1, spectateurId: 5, siegeId: 101, evenementId: 1, statut: 'en_selection' },
-      { id: 2, spectateurId: 5, siegeId: 102, evenementId: 1, statut: 'en_selection' },
+      { id: 1, spectateurId: 5, siegeId: 101, evenementId: 1, statut: 'confirmee' },
+      { id: 2, spectateurId: 5, siegeId: 102, evenementId: 1, statut: 'confirmee' },
     ];
     prisma.reservation.create.mockResolvedValueOnce(creees[0]).mockResolvedValueOnce(creees[1]);
 
