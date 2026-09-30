@@ -52,13 +52,13 @@ describe('createEvenement', () => {
 describe('getPlanSalle', () => {
   it.todo("distingue un siège en_selection par un autre spectateur (#26, #30, #31)");
 
-  it('renvoie null si l\'événement n\'existe pas', async () => {
+  it("renvoie null si l'événement n'existe pas", async () => {
     prisma.evenement.findUnique.mockResolvedValue(null);
 
     await expect(getPlanSalle(999)).resolves.toBeNull();
   });
 
-  it('marque réservés les sièges confirmés et libres les autres', async () => {
+  it('marque réservés les sièges indisponibles et libres les autres', async () => {
     prisma.evenement.findUnique.mockResolvedValue({
       id: 1,
       salle: {
@@ -82,7 +82,7 @@ describe('getPlanSalle', () => {
     });
   });
 
-  it('ne charge que les réservations confirmées', async () => {
+  it('charge les réservations confirmées et celles en sélection non expirées', async () => {
     prisma.evenement.findUnique.mockResolvedValue({
       id: 1,
       salle: { id: 19, nom: 'Salle A', sieges: [] },
@@ -95,8 +95,33 @@ describe('getPlanSalle', () => {
       where: { id: 1 },
       include: {
         salle: { include: { sieges: true } },
-        reservations: { where: { statut: 'confirmee' }, select: { siegeId: true } },
+        reservations: {
+          where: {
+            OR: [
+              { statut: 'confirmee' },
+              { statut: 'en_selection', delaiExpiration: { gt: expect.any(Date) } },
+            ],
+          },
+          select: { siegeId: true },
+        },
       },
     });
+  });
+
+  it('ignore les sélections expirées en comparant le délai à la date courante', async () => {
+    prisma.evenement.findUnique.mockResolvedValue({
+      id: 1,
+      salle: { id: 19, nom: 'Salle A', sieges: [] },
+      reservations: [],
+    });
+
+    const avant = Date.now();
+    await getPlanSalle(1);
+    const apres = Date.now();
+
+    const { where } = prisma.evenement.findUnique.mock.calls[0][0].include.reservations;
+    const limite = where.OR[1].delaiExpiration.gt.getTime();
+    expect(limite).toBeGreaterThanOrEqual(avant);
+    expect(limite).toBeLessThanOrEqual(apres);
   });
 });
