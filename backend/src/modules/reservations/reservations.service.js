@@ -17,6 +17,7 @@ async function reserverSieges({ spectateurId, evenementId, siegeIds }) {
     include: { salle: { include: { sieges: true } } },
   });
   if (!evenement) throw httpError(404, 'Cet événement n\'existe pas.');
+  if (evenement.dateHeure <= new Date()) throw httpError(400, 'Cet événement est déjà passé.');
 
   const siegesDeLaSalle = new Set(evenement.salle.sieges.map((s) => s.id));
   const siegesInconnus = siegeIds.filter((id) => !siegesDeLaSalle.has(id));
