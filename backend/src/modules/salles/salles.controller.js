@@ -12,11 +12,12 @@ async function getSalles(req, res, next) {
 
 async function createSalle(req, res, next) {
   try {
-    const validationError = validateCreateSalle(req.body);
+    const body = { ...req.body, organisateurId: req.user.id };
+    const validationError = validateCreateSalle(body);
     if (validationError) {
       return res.status(400).json({ success: false, error: validationError });
     }
-    const salle = await sallesService.createSalle(req.body);
+    const salle = await sallesService.createSalle(body);
     res.status(201).json({ success: true, data: salle });
   } catch (error) {
     if (error.code === 'P2002') {

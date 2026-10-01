@@ -6,16 +6,17 @@ jest.mock('../../lib/storage', () => ({
   uploadImage: jest.fn(),
 }));
 
+const jwt = require('jsonwebtoken');
 const request = require('supertest');
 const app = require('../../app');
 const prisma = require('../../lib/prisma');
+const { jwtSecret } = require('../../config/env');
 const storage = require('../../lib/storage');
 
 const futur = () => new Date(Date.now() + 7 * 86400_000).toISOString();
 
 function corpsValide(overrides = {}) {
   return {
-    organisateurId: 1,
     salleId: 19,
     titre: 'Festival de Jazz',
     description: 'Une soirée jazz',
@@ -24,6 +25,9 @@ function corpsValide(overrides = {}) {
     ...overrides,
   };
 }
+
+// Organisateur 1 connecté : c'est son id (pris dans le token) qui est utilisé, pas le corps.
+const authOrganisateur = `Bearer ${jwt.sign({ userId: 1, role: 'organisateur' }, jwtSecret)}`;
 
 describe('GET /api/evenements', () => {
   it('renvoie la liste des événements', async () => {
@@ -47,8 +51,25 @@ describe('GET /api/evenements', () => {
 });
 
 describe('POST /api/evenements', () => {
+  it('refuse sans authentification (401)', async () => {
+    const res = await request(app).post('/api/evenements').send(corpsValide());
+
+    expect(res.status).toBe(401);
+    expect(prisma.evenement.create).not.toHaveBeenCalled();
+  });
+
+  it('refuse un spectateur (403)', async () => {
+    const res = await request(app)
+      .post('/api/evenements')
+      .set('Authorization', `Bearer ${jwt.sign({ userId: 5, role: 'spectateur' }, jwtSecret)}`)
+      .send(corpsValide());
+
+    expect(res.status).toBe(403);
+    expect(prisma.evenement.create).not.toHaveBeenCalled();
+  });
+
   it('refuse un corps invalide sans toucher à la base (400)', async () => {
-    const res = await request(app).post('/api/evenements').send(corpsValide({ titre: '' }));
+    const res = await request(app).post('/api/evenements').set('Authorization', authOrganisateur).send(corpsValide({ titre: '' }));
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ success: false, error: expect.stringMatching(/titre est requis/) });
@@ -62,6 +83,7 @@ describe('POST /api/evenements', () => {
 
     const res = await request(app)
       .post('/api/evenements')
+      .set('Authorization', authOrganisateur)
       .send(corpsValide({ titre: '  Festival de Jazz  ', description: '  Une soirée jazz  ' }));
 
     expect(res.status).toBe(201);
@@ -78,7 +100,7 @@ describe('POST /api/evenements', () => {
     prisma.salle.findUnique.mockResolvedValue({ id: 19, organisateurId: 1 });
     prisma.evenement.create.mockResolvedValue({ id: 1 });
 
-    await request(app).post('/api/evenements').send(corpsValide({ description: undefined, afficheUrl: undefined }));
+    await request(app).post('/api/evenements').set('Authorization', authOrganisateur).send(corpsValide({ description: undefined, afficheUrl: undefined }));
 
     const donneesEnvoyees = prisma.evenement.create.mock.calls[0][0].data;
     expect(donneesEnvoyees.description).toBeNull();
@@ -88,7 +110,7 @@ describe('POST /api/evenements', () => {
   it('refuse avec 404 si la salle n\'existe pas', async () => {
     prisma.salle.findUnique.mockResolvedValue(null);
 
-    const res = await request(app).post('/api/evenements').send(corpsValide({ salleId: 999 }));
+    const res = await request(app).post('/api/evenements').set('Authorization', authOrganisateur).send(corpsValide({ salleId: 999 }));
 
     expect(res.status).toBe(404);
     expect(prisma.evenement.create).not.toHaveBeenCalled();
@@ -97,7 +119,7 @@ describe('POST /api/evenements', () => {
   it('refuse avec 403 si la salle appartient à un autre organisateur', async () => {
     prisma.salle.findUnique.mockResolvedValue({ id: 19, organisateurId: 2 });
 
-    const res = await request(app).post('/api/evenements').send(corpsValide({ organisateurId: 1 }));
+    const res = await request(app).post('/api/evenements').set('Authorization', authOrganisateur).send(corpsValide());
 
     expect(res.status).toBe(403);
     expect(prisma.evenement.create).not.toHaveBeenCalled();
@@ -107,7 +129,7 @@ describe('POST /api/evenements', () => {
     prisma.salle.findUnique.mockResolvedValue({ id: 19, organisateurId: 1 });
     prisma.evenement.create.mockRejectedValue(Object.assign(new Error('FK violation'), { code: 'P2003' }));
 
-    const res = await request(app).post('/api/evenements').send(corpsValide());
+    const res = await request(app).post('/api/evenements').set('Authorization', authOrganisateur).send(corpsValide());
 
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/Organisateur introuvable/);
@@ -117,16 +139,27 @@ describe('POST /api/evenements', () => {
     prisma.salle.findUnique.mockResolvedValue({ id: 19, organisateurId: 1 });
     prisma.evenement.create.mockRejectedValue(new Error('boum'));
 
-    const res = await request(app).post('/api/evenements').send(corpsValide());
+    const res = await request(app).post('/api/evenements').set('Authorization', authOrganisateur).send(corpsValide());
 
     expect(res.status).toBe(500);
   });
 });
 
 describe('POST /api/evenements/affiche', () => {
+  it('refuse sans authentification (401)', async () => {
+    const res = await request(app)
+      .post('/api/evenements/affiche')
+      .set('Content-Type', 'image/png')
+      .send(Buffer.from('x'));
+
+    expect(res.status).toBe(401);
+    expect(storage.uploadImage).not.toHaveBeenCalled();
+  });
+
   it('refuse un Content-Type non accepté (400)', async () => {
     const res = await request(app)
       .post('/api/evenements/affiche')
+      .set('Authorization', authOrganisateur)
       .set('Content-Type', 'text/plain')
       .send('pas une image');
 
@@ -137,6 +170,7 @@ describe('POST /api/evenements/affiche', () => {
   it('refuse un corps vide (400)', async () => {
     const res = await request(app)
       .post('/api/evenements/affiche')
+      .set('Authorization', authOrganisateur)
       .set('Content-Type', 'image/png')
       .send(Buffer.alloc(0));
 
@@ -146,6 +180,7 @@ describe('POST /api/evenements/affiche', () => {
   it('refuse une image de plus de 5 Mo (413)', async () => {
     const res = await request(app)
       .post('/api/evenements/affiche')
+      .set('Authorization', authOrganisateur)
       .set('Content-Type', 'image/png')
       .send(Buffer.alloc(5 * 1024 * 1024 + 10));
 
@@ -158,6 +193,7 @@ describe('POST /api/evenements/affiche', () => {
 
     const res = await request(app)
       .post('/api/evenements/affiche')
+      .set('Authorization', authOrganisateur)
       .set('Content-Type', 'image/jpeg')
       .send(Buffer.from('donnees-image'));
 
@@ -172,6 +208,7 @@ describe('POST /api/evenements/affiche', () => {
 
     const res = await request(app)
       .post('/api/evenements/affiche')
+      .set('Authorization', authOrganisateur)
       .set('Content-Type', 'image/png')
       .send(Buffer.from('x'));
 

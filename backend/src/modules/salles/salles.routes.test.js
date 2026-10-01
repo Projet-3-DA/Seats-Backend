@@ -8,7 +8,6 @@ const { jwtSecret } = require('../../config/env');
 
 function corpsValide(overrides = {}) {
   return {
-    organisateurId: 1,
     nom: 'Salle du Cégep',
     nombreRangees: 2,
     siegesParRangee: 3,
@@ -19,6 +18,9 @@ function corpsValide(overrides = {}) {
 function jeton(userId, role = 'organisateur') {
   return jwt.sign({ userId, role }, jwtSecret);
 }
+
+// Organisateur 1 connecté : c'est son id (pris dans le token) qui est utilisé, pas le corps.
+const authOrganisateur = `Bearer ${jeton(1)}`;
 
 describe('GET /api/salles', () => {
   it('refuse avec 401 sans token', async () => {
@@ -41,8 +43,25 @@ describe('GET /api/salles', () => {
 });
 
 describe('POST /api/salles', () => {
+  it('refuse sans authentification (401)', async () => {
+    const res = await request(app).post('/api/salles').send(corpsValide());
+
+    expect(res.status).toBe(401);
+    expect(prisma.salle.create).not.toHaveBeenCalled();
+  });
+
+  it('refuse un spectateur (403)', async () => {
+    const res = await request(app)
+      .post('/api/salles')
+      .set('Authorization', `Bearer ${jwt.sign({ userId: 5, role: 'spectateur' }, jwtSecret)}`)
+      .send(corpsValide());
+
+    expect(res.status).toBe(403);
+    expect(prisma.salle.create).not.toHaveBeenCalled();
+  });
+
   it('refuse un corps invalide sans toucher à la base (400)', async () => {
-    const res = await request(app).post('/api/salles').send(corpsValide({ nombreRangees: 0 }));
+    const res = await request(app).post('/api/salles').set('Authorization', authOrganisateur).send(corpsValide({ nombreRangees: 0 }));
 
     expect(res.status).toBe(400);
     expect(prisma.salle.create).not.toHaveBeenCalled();
@@ -54,7 +73,7 @@ describe('POST /api/salles', () => {
     const salleAvecSieges = { id: 1, nom: 'Salle du Cégep', sieges: new Array(6).fill({}) };
     prisma.salle.findUnique.mockResolvedValue(salleAvecSieges);
 
-    const res = await request(app).post('/api/salles').send(corpsValide());
+    const res = await request(app).post('/api/salles').set('Authorization', authOrganisateur).send(corpsValide());
 
     expect(res.status).toBe(201);
     expect(res.body).toEqual({ success: true, data: salleAvecSieges });
@@ -70,10 +89,20 @@ describe('POST /api/salles', () => {
     );
   });
 
+  it('ignore un organisateurId envoyé dans le corps : seul celui du token compte', async () => {
+    prisma.salle.create.mockResolvedValue({ id: 1 });
+    prisma.siege.createMany.mockResolvedValue({ count: 6 });
+    prisma.salle.findUnique.mockResolvedValue({ id: 1 });
+
+    await request(app).post('/api/salles').set('Authorization', authOrganisateur).send(corpsValide({ organisateurId: 99 }));
+
+    expect(prisma.salle.create.mock.calls[0][0].data.organisateurId).toBe(1);
+  });
+
   it('traduit un doublon (organisateur + nom) en 409', async () => {
     prisma.salle.create.mockRejectedValue(Object.assign(new Error('unique constraint'), { code: 'P2002' }));
 
-    const res = await request(app).post('/api/salles').send(corpsValide());
+    const res = await request(app).post('/api/salles').set('Authorization', authOrganisateur).send(corpsValide());
 
     expect(res.status).toBe(409);
     expect(res.body.error).toMatch(/déjà une salle/);

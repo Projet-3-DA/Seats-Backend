@@ -12,11 +12,12 @@ async function getEvenements(req, res, next) {
 
 async function createEvenement(req, res, next) {
   try {
-    const validationError = validateCreateEvenement(req.body);
+    const body = { ...req.body, organisateurId: req.user.id };
+    const validationError = validateCreateEvenement(body);
     if (validationError) {
       return res.status(400).json({ success: false, error: validationError });
     }
-    const { organisateurId, salleId, titre, description, dateHeure, afficheUrl, tarif } = req.body;
+    const { organisateurId, salleId, titre, description, dateHeure, afficheUrl, tarif } = body;
     const evenement = await evenementsService.createEvenement({
       organisateurId,
       salleId,
