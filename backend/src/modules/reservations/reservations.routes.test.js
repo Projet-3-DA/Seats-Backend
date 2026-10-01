@@ -81,7 +81,7 @@ describe('POST /api/reservations', () => {
     });
   });
 
-  it('renvoie 409 si un siège vient d\'être pris (violation de contrainte concurrente)', async () => {
+  it('refuse avec un message explicite si un siège a été pris entretemps (#26)', async () => {
     prisma.evenement.findUnique.mockResolvedValue(evenement);
     prisma.reservation.findMany.mockResolvedValue([]);
     prisma.reservation.create.mockRejectedValue(Object.assign(new Error('unique constraint'), { code: 'P2002' }));
@@ -92,5 +92,6 @@ describe('POST /api/reservations', () => {
       .send(corps);
 
     expect(res.status).toBe(409);
+    expect(res.body).toEqual({ success: false, error: 'Un ou plusieurs sièges viennent d\'être pris.' });
   });
 });
