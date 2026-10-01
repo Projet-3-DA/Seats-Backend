@@ -11,16 +11,26 @@ function jeton(payload) {
 }
 
 describe('GET /api/reservations', () => {
-  it('utilise l\'utilisateur 1 par défaut tant que l\'authentification n\'est pas branchée', async () => {
-    const liste = [{ id: 1, spectateurId: 1 }];
+  it('refuse sans authentification (401)', async () => {
+    const res = await request(app).get('/api/reservations');
+    expect(res.status).toBe(401);
+  });
+
+  it('renvoie les réservations du spectateur authentifié', async () => {
+    const liste = [{ id: 1, spectateurId: 5, evenement: { dateHeure: new Date(Date.now() + 86_400_000) } }];
     prisma.reservation.findMany.mockResolvedValue(liste);
 
-    const res = await request(app).get('/api/reservations');
+    const res = await request(app)
+      .get('/api/reservations')
+      .set('Authorization', `Bearer ${jeton({ userId: 5, role: 'spectateur' })}`);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ success: true, data: liste });
+    expect(res.body).toEqual({
+      success: true,
+      data: [{ ...liste[0], evenement: { dateHeure: liste[0].evenement.dateHeure.toISOString() }, terminee: false }],
+    });
     expect(prisma.reservation.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { spectateurId: 1 } }),
+      expect.objectContaining({ where: { spectateurId: 5 } }),
     );
   });
 });
@@ -54,8 +64,8 @@ describe('POST /api/reservations', () => {
     prisma.evenement.findUnique.mockResolvedValue(evenement);
     prisma.reservation.findMany.mockResolvedValue([]);
     const creees = [
-      { id: 1, spectateurId: 5, siegeId: 101, evenementId: 1, statut: 'en_selection' },
-      { id: 2, spectateurId: 5, siegeId: 102, evenementId: 1, statut: 'en_selection' },
+      { id: 1, spectateurId: 5, siegeId: 101, evenementId: 1, statut: 'confirmee' },
+      { id: 2, spectateurId: 5, siegeId: 102, evenementId: 1, statut: 'confirmee' },
     ];
     prisma.reservation.create.mockResolvedValueOnce(creees[0]).mockResolvedValueOnce(creees[1]);
 
@@ -71,7 +81,7 @@ describe('POST /api/reservations', () => {
     });
   });
 
-  it('renvoie 409 si un siège vient d\'être pris (violation de contrainte concurrente)', async () => {
+  it('refuse avec un message explicite si un siège a été pris entretemps (#26)', async () => {
     prisma.evenement.findUnique.mockResolvedValue(evenement);
     prisma.reservation.findMany.mockResolvedValue([]);
     prisma.reservation.create.mockRejectedValue(Object.assign(new Error('unique constraint'), { code: 'P2002' }));
@@ -82,5 +92,6 @@ describe('POST /api/reservations', () => {
       .send(corps);
 
     expect(res.status).toBe(409);
+    expect(res.body).toEqual({ success: false, error: 'Un ou plusieurs sièges viennent d\'être pris.' });
   });
 });

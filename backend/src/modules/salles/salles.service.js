@@ -1,7 +1,7 @@
 const prisma = require('../../lib/prisma');
 
-async function getAllSalles() {
-  return await prisma.salle.findMany({ include: { sieges: true } });
+async function getAllSalles(organisateurId) {
+  return await prisma.salle.findMany({ where: { organisateurId }, include: { sieges: true } });
 }
 
 function buildSiegesData(salleId, nombreRangees, siegesParRangee) {
