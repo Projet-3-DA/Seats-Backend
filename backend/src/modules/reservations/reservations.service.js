@@ -2,10 +2,11 @@ const prisma = require('../../lib/prisma');
 const httpError = require('../../lib/http-error');
 
 async function getReservationsByUser(spectateurId) {
-  return await prisma.reservation.findMany({
+  const reservations = await prisma.reservation.findMany({
     where: { spectateurId },
     include: { evenement: true, siege: true },
   });
+  return reservations.map((r) => ({ ...r, terminee: r.evenement.dateHeure < new Date() }));
 }
 
 // Enregistre la réservation confirmée d'un ou plusieurs sièges libres pour un événement (#6). Appelée au
