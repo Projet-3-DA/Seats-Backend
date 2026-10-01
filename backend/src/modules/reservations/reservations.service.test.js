@@ -31,6 +31,7 @@ describe('getReservationsByUser', () => {
 describe('reserverSieges', () => {
   const evenement = {
     id: 1,
+    dateHeure: new Date(Date.now() + 86_400_000),
     salle: { sieges: [{ id: 101 }, { id: 102 }, { id: 103 }] },
   };
 
@@ -94,6 +95,16 @@ describe('reserverSieges', () => {
     prisma.evenement.findUnique.mockResolvedValue(null);
 
     await expect(reserverSieges(attendreSieges())).rejects.toMatchObject({ status: 404 });
+    expect(prisma.reservation.create).not.toHaveBeenCalled();
+  });
+
+  it('refuse (400) la réservation d\'un événement déjà passé (#82)', async () => {
+    prisma.evenement.findUnique.mockResolvedValue({ ...evenement, dateHeure: new Date(Date.now() - 86_400_000) });
+
+    await expect(reserverSieges(attendreSieges())).rejects.toMatchObject({
+      status: 400,
+      message: 'Cet événement est déjà passé.',
+    });
     expect(prisma.reservation.create).not.toHaveBeenCalled();
   });
 

@@ -6,7 +6,6 @@ const { getAllEvenements, createEvenement, getPlanSalle } = require('./evenement
 // "refuse une date passée" et "refuse la publication sans salle attribuée" sont couverts, mais dans
 // evenements.validation.test.js (c'est validateCreateEvenement qui s'en charge, avant que le service
 // soit appelé) — pas de nouveau todo ici pour éviter la confusion sur la couche.
-it.todo("getAllEvenements() ne retourne que les événements dont la date n'est pas passée (#4)");
 it.todo('getAllEvenements() peut être filtré par date ou par lieu, filtres combinables (#21)');
 it.todo('getAllEvenements() peut être dupliqué pour créer rapidement une nouvelle séance (#23)');
 
@@ -16,7 +15,23 @@ describe('getAllEvenements', () => {
     prisma.evenement.findMany.mockResolvedValue(rows);
 
     await expect(getAllEvenements()).resolves.toEqual(rows);
-    expect(prisma.evenement.findMany).toHaveBeenCalledWith({ include: { salle: true } });
+    expect(prisma.evenement.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ include: { salle: true } }),
+    );
+  });
+
+  it('ne retourne que les événements à venir, du plus proche au plus lointain (#4, #82)', async () => {
+    prisma.evenement.findMany.mockResolvedValue([]);
+
+    const avant = Date.now();
+    await getAllEvenements();
+    const apres = Date.now();
+
+    const { where, orderBy } = prisma.evenement.findMany.mock.calls[0][0];
+    const limite = where.dateHeure.gt.getTime();
+    expect(limite).toBeGreaterThanOrEqual(avant);
+    expect(limite).toBeLessThanOrEqual(apres);
+    expect(orderBy).toEqual({ dateHeure: 'asc' });
   });
 });
 
@@ -59,8 +74,10 @@ describe('getPlanSalle', () => {
   });
 
   it('marque réservés les sièges indisponibles et libres les autres', async () => {
+    const dateHeure = new Date('2026-11-05T19:00:00Z');
     prisma.evenement.findUnique.mockResolvedValue({
       id: 1,
+      dateHeure,
       salle: {
         id: 19,
         nom: 'Salle A',
@@ -74,6 +91,7 @@ describe('getPlanSalle', () => {
 
     await expect(getPlanSalle(1)).resolves.toEqual({
       evenementId: 1,
+      dateHeure,
       salle: { id: 19, nom: 'Salle A' },
       sieges: [
         { id: 101, rangee: 1, colonne: 1, etat: 'reserve' },

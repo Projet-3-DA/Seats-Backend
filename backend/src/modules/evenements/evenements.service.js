@@ -2,8 +2,13 @@ const prisma = require('../../lib/prisma');
 const httpError = require('../../lib/http-error');
 const storage = require('../../lib/storage');
 
+// Seuls les événements à venir sont proposés, du plus proche au plus lointain (#82).
 async function getAllEvenements() {
-  return await prisma.evenement.findMany({ include: { salle: true } });
+  return await prisma.evenement.findMany({
+    where: { dateHeure: { gt: new Date() } },
+    orderBy: { dateHeure: 'asc' },
+    include: { salle: true },
+  });
 }
 
 // La salle doit exister et appartenir à l'organisateur qui crée l'événement
@@ -48,6 +53,7 @@ async function getPlanSalle(evenementId) {
 
   return {
     evenementId: evenement.id,
+    dateHeure: evenement.dateHeure,
     salle: { id: evenement.salle.id, nom: evenement.salle.nom },
     sieges: evenement.salle.sieges.map((s) => ({
       id: s.id,
