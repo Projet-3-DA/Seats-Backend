@@ -1,5 +1,6 @@
 const reservationsService = require('./reservations.service');
 const { validateReserverSieges } = require('./reservations.validation');
+const realtime = require('../../realtime');
 
 async function getReservations(req, res, next) {
   try {
@@ -17,11 +18,15 @@ async function reserverSieges(req, res, next) {
       return res.status(400).json({ success: false, error: validationError });
     }
     const { evenementId, siegeIds } = req.body;
+    if (realtime.estSelectionneParAutre(evenementId, siegeIds, req.user.id)) {
+      return res.status(409).json({ success: false, error: 'Un ou plusieurs sièges sont en cours de sélection par quelqu\'un d\'autre.' });
+    }
     const reservations = await reservationsService.reserverSieges({
       spectateurId: req.user.id,
       evenementId,
       siegeIds,
     });
+    realtime.diffuserReserves(evenementId, siegeIds);
     res.status(201).json({ success: true, data: reservations });
   } catch (error) {
     next(error);
