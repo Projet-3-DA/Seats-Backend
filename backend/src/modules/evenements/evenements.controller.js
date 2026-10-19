@@ -70,9 +70,24 @@ async function getPlanSalle(req, res, next) {
   }
 }
 
+async function getVentesEvenement(req, res, next) {
+  try {
+    const evenementId = Number(req.params.id);
+    if (Number.isNaN(evenementId)) {
+      return res.status(400).json({ success: false, error: 'id invalide' });
+    }
+
+    const ventes = await evenementsService.getVentesEvenement(evenementId, req.user.id);
+    res.json({ success: true, data: ventes });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   getEvenements,
   createEvenement,
   getPlanSalle,
+  getVentesEvenement,
   uploadAffiche
 };

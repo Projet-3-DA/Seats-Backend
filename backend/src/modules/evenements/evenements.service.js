@@ -64,9 +64,59 @@ async function getPlanSalle(evenementId) {
   };
 }
 
+// Tableau de bord des ventes (#13) : vendus, en sélection et libres, siège par siège. Réservé à
+// l'organisateur de l'événement. Une sélection expirée ne bloque plus rien : le siège compte comme libre.
+async function getVentesEvenement(evenementId, organisateurId) {
+  const evenement = await prisma.evenement.findUnique({
+    where: { id: evenementId },
+    include: {
+      salle: { include: { sieges: true } },
+      reservations: {
+        where: {
+          OR: [
+            { statut: 'confirmee' },
+            { statut: 'en_selection', delaiExpiration: { gt: new Date() } },
+          ],
+        },
+        select: { siegeId: true, statut: true },
+      },
+    },
+  });
+
+  if (!evenement) throw httpError(404, 'Événement introuvable.');
+  if (evenement.organisateurId !== organisateurId) {
+    throw httpError(403, "Cet événement n'appartient pas à cet organisateur.");
+  }
+
+  const etatParSiege = new Map(
+    evenement.reservations.map((r) => [r.siegeId, r.statut === 'confirmee' ? 'vendu' : 'en_selection']),
+  );
+  const sieges = evenement.salle.sieges
+    .map((s) => ({
+      id: s.id,
+      rangee: s.numeroRangee,
+      colonne: s.numeroColonne,
+      etat: etatParSiege.get(s.id) ?? 'libre',
+    }))
+    .sort((a, b) => a.rangee - b.rangee || a.colonne - b.colonne);
+
+  const compter = (etat) => sieges.filter((s) => s.etat === etat).length;
+  const vendus = compter('vendu');
+  const tarif = evenement.tarif === null || evenement.tarif === undefined ? null : Number(evenement.tarif);
+
+  return {
+    evenement: { id: evenement.id, titre: evenement.titre, dateHeure: evenement.dateHeure, tarif },
+    salle: { id: evenement.salle.id, nom: evenement.salle.nom },
+    totaux: { total: sieges.length, vendus, enSelection: compter('en_selection'), libres: compter('libre') },
+    recette: tarif === null ? null : vendus * tarif,
+    sieges,
+  };
+}
+
 module.exports = {
   getAllEvenements,
   createEvenement,
   getPlanSalle,
+  getVentesEvenement,
   uploadAffiche
 };
