@@ -37,6 +37,26 @@ describe('POST /api/auth/register', () => {
     expect(res.body.data.motDePasse).toBeUndefined();
   });
 
+  it.each(['administrateur', 'super-admin'])('refuse de créer un compte avec le rôle "%s" (400) (#9)', async (role) => {
+    const res = await request(app).post('/api/auth/register').send(inscriptionValide({ role }));
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/rôle/);
+    expect(prisma.utilisateur.create).not.toHaveBeenCalled();
+  });
+
+  it("n'enregistre que les champs attendus, même si la requête en ajoute (#9)", async () => {
+    prisma.utilisateur.create.mockImplementation(async ({ data }) => ({ id: 1, ...data }));
+
+    const res = await request(app)
+      .post('/api/auth/register')
+      .send(inscriptionValide({ id: 999, createdAt: '2000-01-01T00:00:00.000Z' }));
+
+    expect(res.status).toBe(201);
+    const { data } = prisma.utilisateur.create.mock.calls[0][0];
+    expect(Object.keys(data).sort()).toEqual(['email', 'motDePasse', 'nom', 'prenom', 'role']);
+  });
+
   it('traduit un email déjà utilisé en 409', async () => {
     prisma.utilisateur.create.mockRejectedValue(Object.assign(new Error('unique constraint'), { code: 'P2002' }));
 
