@@ -8,4 +8,5 @@ router.get('/', authMiddleware, sallesController.getSalles);
 // organisateurId vient du token, jamais du corps de la requête (même principe que les réservations).
 router.post('/', authMiddleware, roleMiddleware('organisateur'), sallesController.createSalle);
 router.get('/:id', sallesController.getSalleById);
+router.put('/:id', authMiddleware, roleMiddleware('organisateur'), sallesController.updateSalle);
 module.exports = router;
