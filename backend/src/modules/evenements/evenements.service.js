@@ -78,7 +78,12 @@ async function getVentesEvenement(evenementId, organisateurId) {
             { statut: 'en_selection', delaiExpiration: { gt: new Date() } },
           ],
         },
-        select: { siegeId: true, statut: true },
+        select: {
+          id: true,
+          siegeId: true,
+          statut: true,
+          spectateur: { select: { prenom: true, nom: true, email: true } },
+        },
       },
     },
   });
@@ -88,16 +93,19 @@ async function getVentesEvenement(evenementId, organisateurId) {
     throw httpError(403, "Cet événement n'appartient pas à cet organisateur.");
   }
 
-  const etatParSiege = new Map(
-    evenement.reservations.map((r) => [r.siegeId, r.statut === 'confirmee' ? 'vendu' : 'en_selection']),
-  );
+  const reservationParSiege = new Map(evenement.reservations.map((r) => [r.siegeId, r]));
   const sieges = evenement.salle.sieges
-    .map((s) => ({
-      id: s.id,
-      rangee: s.numeroRangee,
-      colonne: s.numeroColonne,
-      etat: etatParSiege.get(s.id) ?? 'libre',
-    }))
+    .map((s) => {
+      const r = reservationParSiege.get(s.id);
+      const siege = { id: s.id, rangee: s.numeroRangee, colonne: s.numeroColonne };
+      if (!r) return { ...siege, etat: 'libre' };
+      // La réservation et son spectateur servent à l'annulation par l'organisateur (#14).
+      return {
+        ...siege,
+        etat: r.statut === 'confirmee' ? 'vendu' : 'en_selection',
+        reservation: { id: r.id, spectateur: r.spectateur },
+      };
+    })
     .sort((a, b) => a.rangee - b.rangee || a.colonne - b.colonne);
 
   const compter = (etat) => sieges.filter((s) => s.etat === etat).length;

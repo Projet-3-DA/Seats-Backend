@@ -94,6 +94,7 @@ Toutes les routes sont préfixées par `/api`. `GET /` renvoie un simple statut 
 | POST | `/api/evenements/affiche` | Envoyer une affiche (image brute, 5 Mo max ; JWT requis, rôle `organisateur`) |
 | GET | `/api/reservations` | Lister les réservations du spectateur connecté (JWT requis) |
 | POST | `/api/reservations` | Réserver des sièges (JWT requis, rôle `spectateur`) |
+| POST | `/api/reservations/:id/annulation` | Annuler une réservation d'un de ses événements, avec un `motif` facultatif ; le siège redevient libre (JWT requis, rôle `organisateur`) |
 
 Les routes protégées attendent l'en-tête `Authorization: Bearer <token>`. L'organisateur ou le spectateur concerné est toujours déduit du token, jamais du corps de la requête.
 

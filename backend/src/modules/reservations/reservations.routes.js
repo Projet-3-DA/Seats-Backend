@@ -8,5 +8,7 @@ router.get('/', authMiddleware, reservationsController.getReservations);
 // spectateurId vient du token, jamais du corps de la requête : sinon n'importe quel client pourrait
 // réserver "au nom" d'un autre utilisateur.
 router.post('/', authMiddleware, roleMiddleware('spectateur'), reservationsController.reserverSieges);
+// Annulation par l'organisateur (#14) : le service vérifie que la réservation concerne un de ses événements.
+router.post('/:id/annulation', authMiddleware, roleMiddleware('organisateur'), reservationsController.annulerReservation);
 
 module.exports = router;
