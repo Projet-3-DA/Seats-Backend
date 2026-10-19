@@ -1,7 +1,7 @@
 jest.mock('../../lib/prisma');
 
 const prisma = require('../../lib/prisma');
-const { getAllEvenements, createEvenement, getPlanSalle } = require('./evenements.service');
+const { getAllEvenements, createEvenement, getPlanSalle, getVentesEvenement } = require('./evenements.service');
 
 // "refuse une date passée" et "refuse la publication sans salle attribuée" sont couverts, mais dans
 // evenements.validation.test.js (c'est validateCreateEvenement qui s'en charge, avant que le service
@@ -141,5 +141,101 @@ describe('getPlanSalle', () => {
     const limite = where.OR[1].delaiExpiration.gt.getTime();
     expect(limite).toBeGreaterThanOrEqual(avant);
     expect(limite).toBeLessThanOrEqual(apres);
+  });
+});
+
+describe('getVentesEvenement (#13)', () => {
+  const evenement = {
+    id: 1,
+    organisateurId: 7,
+    titre: 'Concert',
+    dateHeure: new Date('2026-11-05T19:00:00Z'),
+    tarif: '25.00', // Prisma renvoie un Decimal : on vérifie qu'il est converti en nombre
+    salle: {
+      id: 19,
+      nom: 'Salle A',
+      sieges: [
+        { id: 104, numeroRangee: 2, numeroColonne: 1 },
+        { id: 101, numeroRangee: 1, numeroColonne: 1 },
+        { id: 102, numeroRangee: 1, numeroColonne: 2 },
+        { id: 103, numeroRangee: 1, numeroColonne: 3 },
+      ],
+    },
+    reservations: [
+      { id: 1, siegeId: 101, statut: 'confirmee', spectateur: { prenom: 'Ana', nom: 'B', email: 'ana@x.ca' } },
+      { id: 3, siegeId: 103, statut: 'confirmee', spectateur: { prenom: 'Léo', nom: 'C', email: 'leo@x.ca' } },
+      { id: 2, siegeId: 102, statut: 'en_selection', spectateur: { prenom: 'Zoé', nom: 'D', email: 'zoe@x.ca' } },
+    ],
+  };
+
+  it('compte les sièges vendus, en sélection et libres, et la recette', async () => {
+    prisma.evenement.findUnique.mockResolvedValue(evenement);
+
+    const ventes = await getVentesEvenement(1, 7);
+
+    expect(ventes.totaux).toEqual({ total: 4, vendus: 2, enSelection: 1, libres: 1 });
+    expect(ventes.recette).toBe(50);
+    expect(ventes.evenement).toEqual({ id: 1, titre: 'Concert', dateHeure: evenement.dateHeure, tarif: 25 });
+    expect(ventes.salle).toEqual({ id: 19, nom: 'Salle A' });
+  });
+
+  it("donne l'état de chaque siège, trié par rangée puis colonne", async () => {
+    prisma.evenement.findUnique.mockResolvedValue(evenement);
+
+    const { sieges } = await getVentesEvenement(1, 7);
+
+    expect(sieges.map(({ id, rangee, colonne, etat }) => ({ id, rangee, colonne, etat }))).toEqual([
+      { id: 101, rangee: 1, colonne: 1, etat: 'vendu' },
+      { id: 102, rangee: 1, colonne: 2, etat: 'en_selection' },
+      { id: 103, rangee: 1, colonne: 3, etat: 'vendu' },
+      { id: 104, rangee: 2, colonne: 1, etat: 'libre' },
+    ]);
+  });
+
+  it("joint la réservation et le spectateur de chaque siège occupé, pour l'annulation (#14)", async () => {
+    prisma.evenement.findUnique.mockResolvedValue(evenement);
+
+    const { sieges } = await getVentesEvenement(1, 7);
+
+    expect(sieges.find((s) => s.id === 101).reservation).toEqual({
+      id: 1,
+      spectateur: { prenom: 'Ana', nom: 'B', email: 'ana@x.ca' },
+    });
+    expect(sieges.find((s) => s.id === 104).reservation).toBeUndefined();
+  });
+
+  it('ignore les sélections expirées (seules les confirmées et les sélections en cours sont chargées)', async () => {
+    prisma.evenement.findUnique.mockResolvedValue(evenement);
+
+    await getVentesEvenement(1, 7);
+
+    const { reservations } = prisma.evenement.findUnique.mock.calls[0][0].include;
+    expect(reservations.where).toEqual({
+      OR: [
+        { statut: 'confirmee' },
+        { statut: 'en_selection', delaiExpiration: { gt: expect.any(Date) } },
+      ],
+    });
+  });
+
+  it('renvoie une recette nulle pour un événement sans tarif', async () => {
+    prisma.evenement.findUnique.mockResolvedValue({ ...evenement, tarif: null });
+
+    const ventes = await getVentesEvenement(1, 7);
+
+    expect(ventes.recette).toBeNull();
+    expect(ventes.evenement.tarif).toBeNull();
+  });
+
+  it("refuse (404) si l'événement n'existe pas", async () => {
+    prisma.evenement.findUnique.mockResolvedValue(null);
+
+    await expect(getVentesEvenement(999, 7)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("refuse (403) l'événement d'un autre organisateur", async () => {
+    prisma.evenement.findUnique.mockResolvedValue(evenement);
+
+    await expect(getVentesEvenement(1, 8)).rejects.toMatchObject({ status: 403 });
   });
 });

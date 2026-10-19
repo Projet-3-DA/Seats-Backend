@@ -12,10 +12,13 @@ const prisma = {
     create: jest.fn(),
     findUnique: jest.fn(),
     findMany: jest.fn(),
+    findFirst: jest.fn(),
+    update: jest.fn(),
     upsert: jest.fn(),
   },
   siege: {
     createMany: jest.fn(),
+    deleteMany: jest.fn(),
     findMany: jest.fn(),
   },
   evenement: {
@@ -28,6 +31,8 @@ const prisma = {
     create: jest.fn(),
     createMany: jest.fn(),
     findMany: jest.fn(),
+    findUnique: jest.fn(),
+    updateMany: jest.fn(),
     deleteMany: jest.fn(),
   },
   // Supporte les deux formes de `prisma.$transaction` :

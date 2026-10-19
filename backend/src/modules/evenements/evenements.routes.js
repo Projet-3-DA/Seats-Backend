@@ -10,6 +10,8 @@ router.get('/', evenementsController.getEvenements);
 // organisateurId vient du token, jamais du corps de la requête (même principe que les réservations).
 router.post('/', authMiddleware, roleMiddleware('organisateur'), evenementsController.createEvenement);
 router.get('/:id/plan', evenementsController.getPlanSalle);
+// Tableau de bord des ventes (#13) : l'organisateur ne voit que ses propres événements (vérifié dans le service).
+router.get('/:id/ventes', authMiddleware, roleMiddleware('organisateur'), evenementsController.getVentesEvenement);
 // Le corps est l'image brute (Content-Type: image/png, etc.), pas du JSON ni du multipart.
 router.post('/affiche', authMiddleware, roleMiddleware('organisateur'), express.raw({ type: TYPES_ACCEPTES, limit: '5mb' }), evenementsController.uploadAffiche);
 router.use('/affiche', (err, req, res, next) => {

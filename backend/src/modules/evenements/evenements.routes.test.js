@@ -258,3 +258,63 @@ describe('GET /api/evenements/:id/plan', () => {
   });
 
 });
+
+describe('GET /api/evenements/:id/ventes (#13)', () => {
+  const evenement = {
+    id: 1,
+    organisateurId: 1,
+    titre: 'Concert',
+    dateHeure: new Date('2026-11-05T19:00:00Z'),
+    tarif: 10,
+    salle: { id: 19, nom: 'Salle A', sieges: [{ id: 101, numeroRangee: 1, numeroColonne: 1 }] },
+    reservations: [{ siegeId: 101, statut: 'confirmee' }],
+  };
+
+  it('refuse sans authentification (401)', async () => {
+    const res = await request(app).get('/api/evenements/1/ventes');
+
+    expect(res.status).toBe(401);
+    expect(prisma.evenement.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('refuse un spectateur (403)', async () => {
+    const res = await request(app)
+      .get('/api/evenements/1/ventes')
+      .set('Authorization', `Bearer ${jwt.sign({ userId: 5, role: 'spectateur' }, jwtSecret)}`);
+
+    expect(res.status).toBe(403);
+    expect(prisma.evenement.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("refuse l'événement d'un autre organisateur (403)", async () => {
+    prisma.evenement.findUnique.mockResolvedValue({ ...evenement, organisateurId: 2 });
+
+    const res = await request(app).get('/api/evenements/1/ventes').set('Authorization', authOrganisateur);
+
+    expect(res.status).toBe(403);
+  });
+
+  it("renvoie 404 si l'événement n'existe pas", async () => {
+    prisma.evenement.findUnique.mockResolvedValue(null);
+
+    const res = await request(app).get('/api/evenements/999/ventes').set('Authorization', authOrganisateur);
+
+    expect(res.status).toBe(404);
+  });
+
+  it('refuse un id non numérique (400)', async () => {
+    const res = await request(app).get('/api/evenements/abc/ventes').set('Authorization', authOrganisateur);
+
+    expect(res.status).toBe(400);
+  });
+
+  it("renvoie les ventes de l'événement à son organisateur (200)", async () => {
+    prisma.evenement.findUnique.mockResolvedValue(evenement);
+
+    const res = await request(app).get('/api/evenements/1/ventes').set('Authorization', authOrganisateur);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.totaux).toEqual({ total: 1, vendus: 1, enSelection: 0, libres: 0 });
+    expect(res.body.data.recette).toBe(10);
+  });
+});

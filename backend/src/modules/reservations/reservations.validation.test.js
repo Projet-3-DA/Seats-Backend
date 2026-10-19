@@ -1,4 +1,4 @@
-const { validateReserverSieges } = require('./reservations.validation');
+const { validateReserverSieges, validateAnnulation } = require('./reservations.validation');
 
 function corpsValide(overrides = {}) {
   return { evenementId: 1, siegeIds: [101, 102], ...overrides };
@@ -24,5 +24,25 @@ describe('validateReserverSieges', () => {
   ])('refuse : %s', (_label, overrides, messageAttendu) => {
     const erreur = validateReserverSieges(corpsValide(overrides));
     expect(erreur).toEqual(expect.stringMatching(messageAttendu));
+  });
+});
+
+describe('validateAnnulation (#14)', () => {
+  it('accepte une annulation sans motif', () => {
+    expect(validateAnnulation({})).toBeNull();
+    expect(validateAnnulation(undefined)).toBeNull();
+    expect(validateAnnulation({ motif: null })).toBeNull();
+  });
+
+  it('accepte un motif texte', () => {
+    expect(validateAnnulation({ motif: 'Demande du spectateur' })).toBeNull();
+  });
+
+  it("refuse un motif qui n'est pas un texte", () => {
+    expect(validateAnnulation({ motif: 42 })).toMatch(/texte/);
+  });
+
+  it('refuse un motif de plus de 500 caractères', () => {
+    expect(validateAnnulation({ motif: 'x'.repeat(501) })).toMatch(/500/);
   });
 });

@@ -38,7 +38,7 @@ describe('GET /api/salles', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ success: true, data: liste });
-    expect(prisma.salle.findMany).toHaveBeenCalledWith({ where: { organisateurId: 19 }, include: { sieges: true } });
+    expect(prisma.salle.findMany).toHaveBeenCalledWith({ where: { organisateurId: 19 }, include: { sieges: true, _count: { select: { evenements: true } } } });
   });
 });
 
@@ -106,5 +106,40 @@ describe('POST /api/salles', () => {
 
     expect(res.status).toBe(409);
     expect(res.body.error).toMatch(/déjà une salle/);
+  });
+});
+
+describe('PUT /api/salles/:id (#10)', () => {
+  it('refuse un spectateur (403)', async () => {
+    const res = await request(app).put('/api/salles/3').set('Authorization', `Bearer ${jeton(2, 'spectateur')}`).send(corpsValide());
+
+    expect(res.status).toBe(403);
+  });
+
+  it('refuse une salle vidée de ses sièges sans toucher à la base (400)', async () => {
+    const res = await request(app).put('/api/salles/3').set('Authorization', authOrganisateur).send(corpsValide({ siegesParRangee: 0 }));
+
+    expect(res.status).toBe(400);
+    expect(prisma.salle.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('renvoie le message explicite si la salle est utilisée par un événement (409)', async () => {
+    prisma.salle.findFirst.mockResolvedValue({ id: 3, _count: { evenements: 2 } });
+
+    const res = await request(app).put('/api/salles/3').set('Authorization', authOrganisateur).send(corpsValide());
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ success: false, error: 'Cette salle est déjà utilisée par un événement : elle ne peut plus être modifiée.' });
+  });
+
+  it('modifie la salle (200)', async () => {
+    prisma.salle.findFirst.mockResolvedValue({ id: 3, _count: { evenements: 0 } });
+    prisma.salle.findUnique.mockResolvedValue({ id: 3, nom: 'Salle du Cégep', sieges: [] });
+
+    const res = await request(app).put('/api/salles/3').set('Authorization', authOrganisateur).send(corpsValide());
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ id: 3, nom: 'Salle du Cégep', sieges: [] });
+    expect(prisma.salle.findFirst.mock.calls[0][0].where).toEqual({ id: 3, organisateurId: 1 });
   });
 });

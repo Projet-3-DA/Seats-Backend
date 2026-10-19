@@ -83,8 +83,15 @@ model Reservation {
   dateSelection    DateTime         @default(now())
   dateConfirmation DateTime?
   delaiExpiration  DateTime
+  // Annulation par l'organisateur (#14) : la réservation reste dans l'historique du spectateur.
+  motifAnnulation  String?
+  dateAnnulation   DateTime?
+  // true tant que la réservation occupe le siège, NULL une fois annulée. Postgres considère deux NULL
+  // comme différents dans une contrainte unique : les réservations annulées s'accumulent sans bloquer
+  // le siège, et il ne peut toujours y avoir qu'une seule réservation active par siège (#16, #27, #38).
+  actif            Boolean?         @default(true)
 
-  @@unique([siegeId, evenementId])
+  @@unique([siegeId, evenementId, actif])
 }
 
 enum StatutReservation {
