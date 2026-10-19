@@ -9,7 +9,7 @@
 // du dépôt, ou le job "test-integration" de la CI).
 
 const prisma = require('../../lib/prisma');
-const { reserverSieges } = require('./reservations.service');
+const { reserverSieges, annulerReservation } = require('./reservations.service');
 
 const SUFFIXE = Date.now(); // évite les collisions d'email/nom si la base n'est pas parfaitement vide
 
@@ -219,4 +219,46 @@ test("ne libère jamais une réservation confirmée, même ancienne", async () =
   const enBase = await prisma.reservation.findMany({ where: { siegeId: siege1.id, evenementId: evenement.id } });
   expect(enBase).toHaveLength(1);
   expect(enBase[0].statut).toBe('confirmee');
+});
+
+// #14 : une réservation annulée reste en base (historique du spectateur) sans bloquer le siège, et la
+// contrainte unique continue d'interdire deux réservations actives du même siège.
+test("un siège annulé par l'organisateur peut être re-réservé, l'annulation reste dans l'historique", async () => {
+  const [siege1] = sieges;
+  const [premiere] = await reserverSieges({ spectateurId: spectateur.id, evenementId: evenement.id, siegeIds: [siege1.id] });
+
+  await annulerReservation({ reservationId: premiere.id, organisateurId: organisateur.id, motif: 'Erreur' });
+  const [seconde] = await reserverSieges({ spectateurId: spectateur.id, evenementId: evenement.id, siegeIds: [siege1.id] });
+
+  const lignes = await prisma.reservation.findMany({ where: { evenementId: evenement.id, siegeId: siege1.id } });
+  expect(lignes).toHaveLength(2);
+  expect(lignes.find((r) => r.id === premiere.id)).toMatchObject({ statut: 'annulee', actif: null, motifAnnulation: 'Erreur' });
+  expect(lignes.find((r) => r.id === seconde.id)).toMatchObject({ statut: 'confirmee', actif: true });
+});
+
+test('après une annulation, deux réservations simultanées du siège libéré : une seule passe', async () => {
+  const [, siege2] = sieges;
+  const [premiere] = await reserverSieges({ spectateurId: spectateur.id, evenementId: evenement.id, siegeIds: [siege2.id] });
+  await annulerReservation({ reservationId: premiere.id, organisateurId: organisateur.id });
+
+  const resultats = await Promise.allSettled([
+    reserverSieges({ spectateurId: spectateur.id, evenementId: evenement.id, siegeIds: [siege2.id] }),
+    reserverSieges({ spectateurId: spectateur.id, evenementId: evenement.id, siegeIds: [siege2.id] }),
+  ]);
+
+  expect(resultats.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+  expect(resultats.find((r) => r.status === 'rejected').reason).toMatchObject({ status: 409 });
+});
+
+test("deux annulations simultanées de la même réservation : une seule s'applique", async () => {
+  const [, , siege3] = sieges;
+  const [reservation] = await reserverSieges({ spectateurId: spectateur.id, evenementId: evenement.id, siegeIds: [siege3.id] });
+
+  const resultats = await Promise.allSettled([
+    annulerReservation({ reservationId: reservation.id, organisateurId: organisateur.id }),
+    annulerReservation({ reservationId: reservation.id, organisateurId: organisateur.id }),
+  ]);
+
+  expect(resultats.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+  expect(resultats.find((r) => r.status === 'rejected').reason).toMatchObject({ status: 409 });
 });

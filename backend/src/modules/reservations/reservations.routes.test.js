@@ -95,3 +95,79 @@ describe('POST /api/reservations', () => {
     expect(res.body).toEqual({ success: false, error: 'Un ou plusieurs sièges viennent d\'être pris.' });
   });
 });
+
+describe('POST /api/reservations/:id/annulation (#14)', () => {
+  const orga = () => `Bearer ${jeton({ userId: 7, role: 'organisateur' })}`;
+  const reservation = { id: 5, statut: 'confirmee', evenement: { id: 1, organisateurId: 7 } };
+
+  it('refuse sans authentification (401)', async () => {
+    const res = await request(app).post('/api/reservations/5/annulation').send({});
+    expect(res.status).toBe(401);
+  });
+
+  it('refuse un spectateur (403)', async () => {
+    const res = await request(app)
+      .post('/api/reservations/5/annulation')
+      .set('Authorization', `Bearer ${jeton({ userId: 5, role: 'spectateur' })}`)
+      .send({});
+    expect(res.status).toBe(403);
+    expect(prisma.reservation.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('refuse un id non numérique (400)', async () => {
+    const res = await request(app).post('/api/reservations/abc/annulation').set('Authorization', orga()).send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('refuse un motif invalide (400)', async () => {
+    const res = await request(app)
+      .post('/api/reservations/5/annulation')
+      .set('Authorization', orga())
+      .send({ motif: 'x'.repeat(501) });
+    expect(res.status).toBe(400);
+    expect(prisma.reservation.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("refuse la réservation de l'événement d'un autre organisateur (403)", async () => {
+    prisma.reservation.findUnique.mockResolvedValue({ ...reservation, evenement: { id: 1, organisateurId: 8 } });
+
+    const res = await request(app).post('/api/reservations/5/annulation').set('Authorization', orga()).send({});
+
+    expect(res.status).toBe(403);
+    expect(prisma.reservation.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('annule la réservation avec le motif nettoyé (200)', async () => {
+    prisma.reservation.findUnique
+      .mockResolvedValueOnce(reservation)
+      .mockResolvedValueOnce({ id: 5, statut: 'annulee', motifAnnulation: 'Erreur de siège' });
+    prisma.reservation.updateMany.mockResolvedValue({ count: 1 });
+
+    const res = await request(app)
+      .post('/api/reservations/5/annulation')
+      .set('Authorization', orga())
+      .send({ motif: '  Erreur de siège  ' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.statut).toBe('annulee');
+    expect(prisma.reservation.updateMany.mock.calls[0][0].data.motifAnnulation).toBe('Erreur de siège');
+  });
+
+  it('accepte une annulation sans corps de requête', async () => {
+    prisma.reservation.findUnique.mockResolvedValueOnce(reservation).mockResolvedValueOnce({ id: 5 });
+    prisma.reservation.updateMany.mockResolvedValue({ count: 1 });
+
+    const res = await request(app).post('/api/reservations/5/annulation').set('Authorization', orga());
+
+    expect(res.status).toBe(200);
+  });
+
+  it('renvoie 409 pour une réservation déjà annulée', async () => {
+    prisma.reservation.findUnique.mockResolvedValue(reservation);
+    prisma.reservation.updateMany.mockResolvedValue({ count: 0 });
+
+    const res = await request(app).post('/api/reservations/5/annulation').set('Authorization', orga()).send({});
+
+    expect(res.status).toBe(409);
+  });
+});

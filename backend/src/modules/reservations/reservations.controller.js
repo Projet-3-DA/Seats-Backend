@@ -1,5 +1,5 @@
 const reservationsService = require('./reservations.service');
-const { validateReserverSieges } = require('./reservations.validation');
+const { validateReserverSieges, validateAnnulation } = require('./reservations.validation');
 
 async function getReservations(req, res, next) {
   try {
@@ -28,7 +28,29 @@ async function reserverSieges(req, res, next) {
   }
 }
 
+async function annulerReservation(req, res, next) {
+  try {
+    const reservationId = Number(req.params.id);
+    if (!Number.isInteger(reservationId)) {
+      return res.status(400).json({ success: false, error: 'id invalide' });
+    }
+    const validationError = validateAnnulation(req.body);
+    if (validationError) {
+      return res.status(400).json({ success: false, error: validationError });
+    }
+    const reservation = await reservationsService.annulerReservation({
+      reservationId,
+      organisateurId: req.user.id,
+      motif: req.body?.motif?.trim(),
+    });
+    res.json({ success: true, data: reservation });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   getReservations,
   reserverSieges,
+  annulerReservation,
 };

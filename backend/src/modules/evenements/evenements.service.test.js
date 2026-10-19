@@ -162,9 +162,9 @@ describe('getVentesEvenement (#13)', () => {
       ],
     },
     reservations: [
-      { siegeId: 101, statut: 'confirmee' },
-      { siegeId: 103, statut: 'confirmee' },
-      { siegeId: 102, statut: 'en_selection' },
+      { id: 1, siegeId: 101, statut: 'confirmee', spectateur: { prenom: 'Ana', nom: 'B', email: 'ana@x.ca' } },
+      { id: 3, siegeId: 103, statut: 'confirmee', spectateur: { prenom: 'Léo', nom: 'C', email: 'leo@x.ca' } },
+      { id: 2, siegeId: 102, statut: 'en_selection', spectateur: { prenom: 'Zoé', nom: 'D', email: 'zoe@x.ca' } },
     ],
   };
 
@@ -184,12 +184,24 @@ describe('getVentesEvenement (#13)', () => {
 
     const { sieges } = await getVentesEvenement(1, 7);
 
-    expect(sieges).toEqual([
+    expect(sieges.map(({ id, rangee, colonne, etat }) => ({ id, rangee, colonne, etat }))).toEqual([
       { id: 101, rangee: 1, colonne: 1, etat: 'vendu' },
       { id: 102, rangee: 1, colonne: 2, etat: 'en_selection' },
       { id: 103, rangee: 1, colonne: 3, etat: 'vendu' },
       { id: 104, rangee: 2, colonne: 1, etat: 'libre' },
     ]);
+  });
+
+  it("joint la réservation et le spectateur de chaque siège occupé, pour l'annulation (#14)", async () => {
+    prisma.evenement.findUnique.mockResolvedValue(evenement);
+
+    const { sieges } = await getVentesEvenement(1, 7);
+
+    expect(sieges.find((s) => s.id === 101).reservation).toEqual({
+      id: 1,
+      spectateur: { prenom: 'Ana', nom: 'B', email: 'ana@x.ca' },
+    });
+    expect(sieges.find((s) => s.id === 104).reservation).toBeUndefined();
   });
 
   it('ignore les sélections expirées (seules les confirmées et les sélections en cours sont chargées)', async () => {
