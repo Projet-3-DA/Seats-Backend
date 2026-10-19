@@ -64,9 +64,8 @@ async function getPlanSalle(evenementId) {
   };
 }
 
-// Tableau de bord des ventes (#13) : vendus, en sélection et libres, siège par siège. Réservé à
-// l'organisateur de l'événement. Une sélection expirée ne bloque plus rien : le siège compte comme libre.
-async function getVentesEvenement(evenementId, organisateurId) {
+// Charge un événement avec sa salle et ses réservations actives (vendues ou en sélection non expirée).
+async function chargerEvenementAvecVentes(evenementId, include = {}) {
   const evenement = await prisma.evenement.findUnique({
     where: { id: evenementId },
     include: {
@@ -85,14 +84,16 @@ async function getVentesEvenement(evenementId, organisateurId) {
           spectateur: { select: { prenom: true, nom: true, email: true } },
         },
       },
+      ...include,
     },
   });
-
   if (!evenement) throw httpError(404, 'Événement introuvable.');
-  if (evenement.organisateurId !== organisateurId) {
-    throw httpError(403, "Cet événement n'appartient pas à cet organisateur.");
-  }
+  return evenement;
+}
 
+// Vendus, en sélection et libres, siège par siège. Une sélection expirée ne bloque plus rien : le siège
+// compte comme libre.
+function calculerVentes(evenement) {
   const reservationParSiege = new Map(evenement.reservations.map((r) => [r.siegeId, r]));
   const sieges = evenement.salle.sieges
     .map((s) => {
@@ -121,10 +122,21 @@ async function getVentesEvenement(evenementId, organisateurId) {
   };
 }
 
+// Tableau de bord des ventes (#13) : réservé à l'organisateur de l'événement.
+async function getVentesEvenement(evenementId, organisateurId) {
+  const evenement = await chargerEvenementAvecVentes(evenementId);
+  if (evenement.organisateurId !== organisateurId) {
+    throw httpError(403, "Cet événement n'appartient pas à cet organisateur.");
+  }
+  return calculerVentes(evenement);
+}
+
 module.exports = {
   getAllEvenements,
   createEvenement,
   getPlanSalle,
   getVentesEvenement,
+  chargerEvenementAvecVentes,
+  calculerVentes,
   uploadAffiche
 };
