@@ -5,7 +5,7 @@
     "start": "node src/server.js",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:integration": "jest --testPathIgnorePatterns=/node_modules/ --testMatch=**/*.integration.test.js",
+    "test:integration": "jest --runInBand --testPathIgnorePatterns=/node_modules/ --testMatch=**/*.integration.test.js",
     "postinstall": "prisma generate"
   },
   "dependencies": {
