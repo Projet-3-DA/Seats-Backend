@@ -171,3 +171,56 @@ describe('POST /api/reservations/:id/annulation (#14)', () => {
     expect(res.status).toBe(409);
   });
 });
+
+describe('POST /api/reservations/:id/annuler (#12)', () => {
+  const spectateur = () => `Bearer ${jeton({ userId: 3, role: 'spectateur' })}`;
+  const dateFuture = new Date(Date.now() + 86_400_000);
+  const reservation = { id: 5, statut: 'confirmee', spectateurId: 3, evenement: { id: 1, dateHeure: dateFuture } };
+
+  it('refuse sans authentification (401)', async () => {
+    const res = await request(app).post('/api/reservations/5/annuler').send({});
+    expect(res.status).toBe(401);
+  });
+
+  it('refuse un organisateur (403)', async () => {
+    const res = await request(app)
+      .post('/api/reservations/5/annuler')
+      .set('Authorization', `Bearer ${jeton({ userId: 7, role: 'organisateur' })}`)
+      .send({});
+    expect(res.status).toBe(403);
+    expect(prisma.reservation.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuse la réservation d'un autre spectateur (403)", async () => {
+    prisma.reservation.findUnique.mockResolvedValue({ ...reservation, spectateurId: 99 });
+
+    const res = await request(app).post('/api/reservations/5/annuler').set('Authorization', spectateur()).send({});
+
+    expect(res.status).toBe(403);
+    expect(prisma.reservation.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('refuse une réservation dont l\'événement est déjà passé (400)', async () => {
+    prisma.reservation.findUnique.mockResolvedValue({
+      ...reservation,
+      evenement: { id: 1, dateHeure: new Date(Date.now() - 86_400_000) },
+    });
+
+    const res = await request(app).post('/api/reservations/5/annuler').set('Authorization', spectateur()).send({});
+
+    expect(res.status).toBe(400);
+    expect(prisma.reservation.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('annule la réservation à venir (200)', async () => {
+    prisma.reservation.findUnique
+      .mockResolvedValueOnce(reservation)
+      .mockResolvedValueOnce({ id: 5, statut: 'annulee', actif: null });
+    prisma.reservation.updateMany.mockResolvedValue({ count: 1 });
+
+    const res = await request(app).post('/api/reservations/5/annuler').set('Authorization', spectateur()).send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.statut).toBe('annulee');
+  });
+});
