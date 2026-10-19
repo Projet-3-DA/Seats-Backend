@@ -12,10 +12,13 @@ const prisma = {
     create: jest.fn(),
     findUnique: jest.fn(),
     findMany: jest.fn(),
+    findFirst: jest.fn(),
+    update: jest.fn(),
     upsert: jest.fn(),
   },
   siege: {
     createMany: jest.fn(),
+    deleteMany: jest.fn(),
     findMany: jest.fn(),
   },
   evenement: {

@@ -26,6 +26,27 @@ async function createSalle(req, res, next) {
     next(error);
   }
 }
+async function updateSalle(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ success: false, error: 'id invalide' });
+    }
+    const body = { ...req.body, organisateurId: req.user.id };
+    const validationError = validateCreateSalle(body);
+    if (validationError) {
+      return res.status(400).json({ success: false, error: validationError });
+    }
+    const salle = await sallesService.updateSalle(id, body);
+    res.json({ success: true, data: salle });
+  } catch (error) {
+    if (error.code === 'P2002') {
+      return res.status(409).json({ success: false, error: 'Cette organisation a déjà une salle avec ce nom.' });
+    }
+    next(error);
+  }
+}
+
 async function getSalleById(req, res, next) {
   try {
     const id = Number(req.params.id);
@@ -46,4 +67,5 @@ module.exports = {
   getSalles,
   getSalleById,
   createSalle,
+  updateSalle,
 };
