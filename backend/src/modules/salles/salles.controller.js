@@ -1,5 +1,5 @@
 const sallesService = require('./salles.service');
-const { validateCreateSalle } = require('./salles.validation');
+const { validateCreateSalle, validateSections } = require('./salles.validation');
 
 async function getSalles(req, res, next) {
   try {
@@ -47,6 +47,23 @@ async function updateSalle(req, res, next) {
   }
 }
 
+async function remplacerSections(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ success: false, error: 'id invalide' });
+    }
+    const validationError = validateSections(req.body);
+    if (validationError) {
+      return res.status(400).json({ success: false, error: validationError });
+    }
+    const salle = await sallesService.remplacerSections(id, { organisateurId: req.user.id, sections: req.body.sections });
+    res.json({ success: true, data: salle });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function getSalleById(req, res, next) {
   try {
     const id = Number(req.params.id);
@@ -66,6 +83,7 @@ async function getSalleById(req, res, next) {
 module.exports = {
   getSalles,
   getSalleById,
+  remplacerSections,
   createSalle,
   updateSalle,
 };

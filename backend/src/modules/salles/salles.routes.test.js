@@ -143,3 +143,64 @@ describe('PUT /api/salles/:id (#10)', () => {
     expect(prisma.salle.findFirst.mock.calls[0][0].where).toEqual({ id: 3, organisateurId: 1 });
   });
 });
+
+describe('PUT /api/salles/:id/sections (#11)', () => {
+  const corps = { sections: [{ nom: 'Parterre', prix: 45, couleur: '#2563eb', siegeIds: [1, 2] }] };
+
+  it('refuse sans authentification (401)', async () => {
+    const res = await request(app).put('/api/salles/3/sections').send(corps);
+    expect(res.status).toBe(401);
+  });
+
+  it('refuse un spectateur (403)', async () => {
+    const res = await request(app)
+      .put('/api/salles/3/sections')
+      .set('Authorization', `Bearer ${jeton(5, 'spectateur')}`)
+      .send(corps);
+    expect(res.status).toBe(403);
+    expect(prisma.salle.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('refuse un corps invalide sans toucher à la base (400)', async () => {
+    const res = await request(app)
+      .put('/api/salles/3/sections')
+      .set('Authorization', authOrganisateur)
+      .send({ sections: [{ ...corps.sections[0], prix: -5 }] });
+    expect(res.status).toBe(400);
+    expect(prisma.salle.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('refuse un siège dans deux sections (400)', async () => {
+    const res = await request(app)
+      .put('/api/salles/3/sections')
+      .set('Authorization', authOrganisateur)
+      .send({ sections: [corps.sections[0], { nom: 'Balcon', prix: 20, couleur: '#f59e0b', siegeIds: [2] }] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/une seule section/);
+  });
+
+  it('refuse une salle déjà utilisée par un événement (409)', async () => {
+    prisma.salle.findFirst.mockResolvedValue({ id: 3, sieges: [{ id: 1 }, { id: 2 }], _count: { evenements: 2 } });
+
+    const res = await request(app).put('/api/salles/3/sections').set('Authorization', authOrganisateur).send(corps);
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/déjà utilisée par un événement/);
+  });
+
+  it("enregistre les sections de l'organisateur connecté (200)", async () => {
+    prisma.salle.findFirst.mockResolvedValue({ id: 3, sieges: [{ id: 1 }, { id: 2 }], _count: { evenements: 0 } });
+    prisma.section.create.mockResolvedValue({ id: 10 });
+    prisma.salle.findUnique.mockResolvedValue({
+      id: 3,
+      sieges: [],
+      sections: [{ id: 10, nom: 'Parterre', prix: '45.00', couleur: '#2563eb' }],
+    });
+
+    const res = await request(app).put('/api/salles/3/sections').set('Authorization', authOrganisateur).send(corps);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.sections).toEqual([{ id: 10, nom: 'Parterre', prix: 45, couleur: '#2563eb' }]);
+    expect(prisma.salle.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 3, organisateurId: 1 } }));
+  });
+});

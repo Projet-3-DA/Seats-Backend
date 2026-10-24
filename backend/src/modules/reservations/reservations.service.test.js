@@ -12,10 +12,10 @@ describe('getReservationsByUser', () => {
     const rows = [{ id: 1, spectateurId: 5, evenement: { dateHeure: new Date(Date.now() + 86_400_000) }, siege: {} }];
     prisma.reservation.findMany.mockResolvedValue(rows);
 
-    await expect(getReservationsByUser(5)).resolves.toEqual([{ ...rows[0], terminee: false }]);
+    await expect(getReservationsByUser(5)).resolves.toEqual([{ ...rows[0], prix: null, terminee: false }]);
     expect(prisma.reservation.findMany).toHaveBeenCalledWith({
       where: { spectateurId: 5 },
-      include: { evenement: true, siege: true },
+      include: { evenement: true, siege: { include: { section: true } } },
     });
   });
 
@@ -23,7 +23,7 @@ describe('getReservationsByUser', () => {
     const rows = [{ id: 2, spectateurId: 5, evenement: { dateHeure: new Date(Date.now() - 86_400_000) }, siege: {} }];
     prisma.reservation.findMany.mockResolvedValue(rows);
 
-    await expect(getReservationsByUser(5)).resolves.toEqual([{ ...rows[0], terminee: true }]);
+    await expect(getReservationsByUser(5)).resolves.toEqual([{ ...rows[0], prix: null, terminee: true }]);
   });
 });
 
@@ -168,5 +168,19 @@ describe('annulerReservation (#14)', () => {
     prisma.reservation.updateMany.mockResolvedValue({ count: 0 });
 
     await expect(annulerReservation({ reservationId: 5, organisateurId: 7 })).rejects.toMatchObject({ status: 409 });
+  });
+});
+
+describe('getReservationsByUser : prix de la place (#11)', () => {
+  it("renvoie le prix de la section du siège, sinon le tarif de l'événement", async () => {
+    const evenement = { dateHeure: new Date(Date.now() + 86_400_000), tarif: '25.00' };
+    prisma.reservation.findMany.mockResolvedValue([
+      { id: 1, evenement, siege: { id: 101, section: { prix: '40.00' } } },
+      { id: 2, evenement, siege: { id: 102, section: null } },
+    ]);
+
+    const reservations = await getReservationsByUser(5);
+
+    expect(reservations.map((r) => r.prix)).toEqual([40, 25]);
   });
 });

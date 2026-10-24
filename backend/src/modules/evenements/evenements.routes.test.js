@@ -236,6 +236,7 @@ describe('GET /api/evenements/:id/plan', () => {
       salle: {
         id: 19,
         nom: 'Salle A',
+        sections: [],
         sieges: [
           { id: 101, numeroRangee: 1, numeroColonne: 1 },
           { id: 102, numeroRangee: 1, numeroColonne: 2 },
@@ -250,9 +251,10 @@ describe('GET /api/evenements/:id/plan', () => {
     expect(res.body.data).toEqual({
       evenementId: 1,
       salle: { id: 19, nom: 'Salle A' },
+      sections: [],
       sieges: [
-        { id: 101, rangee: 1, colonne: 1, etat: 'reserve' },
-        { id: 102, rangee: 1, colonne: 2, etat: 'libre' },
+        { id: 101, rangee: 1, colonne: 1, etat: 'reserve', sectionId: null, prix: null },
+        { id: 102, rangee: 1, colonne: 2, etat: 'libre', sectionId: null, prix: null },
       ],
     });
   });
@@ -266,7 +268,7 @@ describe('GET /api/evenements/:id/ventes (#13)', () => {
     titre: 'Concert',
     dateHeure: new Date('2026-11-05T19:00:00Z'),
     tarif: 10,
-    salle: { id: 19, nom: 'Salle A', sieges: [{ id: 101, numeroRangee: 1, numeroColonne: 1 }] },
+    salle: { id: 19, nom: 'Salle A', sections: [], sieges: [{ id: 101, numeroRangee: 1, numeroColonne: 1 }] },
     reservations: [{ siegeId: 101, statut: 'confirmee' }],
   };
 
