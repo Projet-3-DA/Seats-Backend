@@ -1,6 +1,7 @@
 const prisma = require('../../lib/prisma');
 const httpError = require('../../lib/http-error');
 const storage = require('../../lib/storage');
+const { prixSiege, formatSection } = require('../../lib/prix');
 
 // Seuls les événements à venir sont proposés, du plus proche au plus lointain (#82).
 async function getAllEvenements() {
@@ -33,7 +34,7 @@ async function getPlanSalle(evenementId) {
   const evenement = await prisma.evenement.findUnique({
     where: { id: evenementId },
     include: {
-      salle: { include: { sieges: true } },
+      salle: { include: { sieges: { include: { section: true } }, sections: true } },
      reservations: {
   // Un siège est indisponible s'il est confirmé, ou en sélection avec un délai non expiré (#6, #30).
   where: {
@@ -55,11 +56,15 @@ async function getPlanSalle(evenementId) {
     evenementId: evenement.id,
     dateHeure: evenement.dateHeure,
     salle: { id: evenement.salle.id, nom: evenement.salle.nom },
+    // Sections tarifaires de la salle (#11) ; vide si la salle est au tarif unique de l'événement.
+    sections: evenement.salle.sections.map(formatSection),
     sieges: evenement.salle.sieges.map((s) => ({
       id: s.id,
       rangee: s.numeroRangee,
       colonne: s.numeroColonne,
       etat: siegesReserves.has(s.id) ? 'reserve' : 'libre',
+      sectionId: s.sectionId ?? null,
+      prix: prixSiege(s, evenement.tarif),
     })),
   };
 }
@@ -70,7 +75,7 @@ async function getVentesEvenement(evenementId, organisateurId) {
   const evenement = await prisma.evenement.findUnique({
     where: { id: evenementId },
     include: {
-      salle: { include: { sieges: true } },
+      salle: { include: { sieges: { include: { section: true } }, sections: true } },
       reservations: {
         where: {
           OR: [
@@ -97,7 +102,13 @@ async function getVentesEvenement(evenementId, organisateurId) {
   const sieges = evenement.salle.sieges
     .map((s) => {
       const r = reservationParSiege.get(s.id);
-      const siege = { id: s.id, rangee: s.numeroRangee, colonne: s.numeroColonne };
+      const siege = {
+        id: s.id,
+        rangee: s.numeroRangee,
+        colonne: s.numeroColonne,
+        sectionId: s.sectionId ?? null,
+        prix: prixSiege(s, evenement.tarif),
+      };
       if (!r) return { ...siege, etat: 'libre' };
       // La réservation et son spectateur servent à l'annulation par l'organisateur (#14).
       return {
@@ -116,7 +127,11 @@ async function getVentesEvenement(evenementId, organisateurId) {
     evenement: { id: evenement.id, titre: evenement.titre, dateHeure: evenement.dateHeure, tarif },
     salle: { id: evenement.salle.id, nom: evenement.salle.nom },
     totaux: { total: sieges.length, vendus, enSelection: compter('en_selection'), libres: compter('libre') },
-    recette: tarif === null ? null : vendus * tarif,
+    // Chaque place vendue rapporte le prix de sa section, ou le tarif de l'événement hors section (#11).
+    recette: tarif === null && evenement.salle.sections.length === 0
+      ? null
+      : sieges.filter((s) => s.etat === 'vendu').reduce((total, s) => total + (s.prix ?? 0), 0),
+    sections: evenement.salle.sections.map(formatSection),
     sieges,
   };
 }

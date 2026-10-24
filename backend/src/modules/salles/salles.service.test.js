@@ -1,12 +1,11 @@
 jest.mock('../../lib/prisma');
 
 const prisma = require('../../lib/prisma');
-const { getAllSalles, createSalle, updateSalle } = require('./salles.service');
+const { getAllSalles, createSalle, updateSalle, remplacerSections, getSalleById } = require('./salles.service');
 
 // "rejette une salle sans aucun siège" est déjà couvert dans salles.validation.test.js
 // (nombreRangees/siegesParRangee > 0), avant que le service soit appelé.
 it.todo("l'unicité (organisateurId, nom) est une contrainte DB (@@unique) : pas testable avec Prisma simulé (#2)");
-it.todo('assignerSection() assigne un groupe de sièges à une section nommée avec un prix (#11)');
 
 describe('getAllSalles', () => {
   it('liste les salles avec leurs sièges', async () => {
@@ -81,5 +80,99 @@ describe('updateSalle (#10)', () => {
 
     await expect(updateSalle(3, modif)).rejects.toMatchObject({ status: 404 });
     expect(prisma.salle.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('remplacerSections (#11)', () => {
+  const salle = { id: 3, sieges: [{ id: 1 }, { id: 2 }, { id: 3 }], _count: { evenements: 0 } };
+  const sections = [
+    { nom: ' Parterre ', prix: 45, couleur: '#2563eb', siegeIds: [1, 2] },
+    { nom: 'Balcon', prix: 25, couleur: '#f59e0b', siegeIds: [3] },
+  ];
+
+  it('remplace les sections et assigne chaque groupe de sièges à sa section', async () => {
+    prisma.salle.findFirst.mockResolvedValue(salle);
+    prisma.section.create.mockResolvedValueOnce({ id: 10 }).mockResolvedValueOnce({ id: 11 });
+    prisma.salle.findUnique.mockResolvedValue({
+      id: 3,
+      sieges: [],
+      sections: [{ id: 10, nom: 'Parterre', prix: '45.00', couleur: '#2563eb' }],
+    });
+
+    const resultat = await remplacerSections(3, { organisateurId: 7, sections });
+
+    expect(prisma.salle.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 3, organisateurId: 7 } }));
+    // Les anciennes sections sont retirées avant de créer les nouvelles
+    expect(prisma.siege.updateMany).toHaveBeenNthCalledWith(1, { where: { salleId: 3 }, data: { sectionId: null } });
+    expect(prisma.section.deleteMany).toHaveBeenCalledWith({ where: { salleId: 3 } });
+    expect(prisma.section.create).toHaveBeenNthCalledWith(1, {
+      data: { salleId: 3, nom: 'Parterre', prix: 45, couleur: '#2563eb' },
+    });
+    expect(prisma.siege.updateMany).toHaveBeenNthCalledWith(2, {
+      where: { id: { in: [1, 2] }, salleId: 3 },
+      data: { sectionId: 10 },
+    });
+    expect(prisma.siege.updateMany).toHaveBeenNthCalledWith(3, {
+      where: { id: { in: [3] }, salleId: 3 },
+      data: { sectionId: 11 },
+    });
+    expect(resultat.sections).toEqual([{ id: 10, nom: 'Parterre', prix: 45, couleur: '#2563eb' }]);
+  });
+
+  it('retire toutes les sections avec une liste vide', async () => {
+    prisma.salle.findFirst.mockResolvedValue(salle);
+    prisma.salle.findUnique.mockResolvedValue({ id: 3, sieges: [], sections: [] });
+
+    await remplacerSections(3, { organisateurId: 7, sections: [] });
+
+    expect(prisma.section.deleteMany).toHaveBeenCalled();
+    expect(prisma.section.create).not.toHaveBeenCalled();
+  });
+
+  it("refuse (404) la salle d'un autre organisateur ou inexistante", async () => {
+    prisma.salle.findFirst.mockResolvedValue(null);
+
+    await expect(remplacerSections(3, { organisateurId: 8, sections })).rejects.toMatchObject({ status: 404 });
+    expect(prisma.section.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('refuse (409) une salle déjà utilisée par un événement, comme la modification (#10)', async () => {
+    prisma.salle.findFirst.mockResolvedValue({ ...salle, _count: { evenements: 1 } });
+
+    await expect(remplacerSections(3, { organisateurId: 7, sections })).rejects.toMatchObject({ status: 409 });
+    expect(prisma.section.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("refuse (400) un siège qui n'appartient pas à la salle", async () => {
+    prisma.salle.findFirst.mockResolvedValue(salle);
+
+    await expect(
+      remplacerSections(3, { organisateurId: 7, sections: [{ ...sections[0], siegeIds: [1, 99] }] }),
+    ).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/99/) });
+    expect(prisma.section.deleteMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('getSalleById avec sections (#11)', () => {
+  it('renvoie les sections avec un prix numérique et le nombre d\'événements', async () => {
+    prisma.salle.findUnique.mockResolvedValue({
+      id: 3,
+      sieges: [{ id: 1, sectionId: 10 }],
+      sections: [{ id: 10, salleId: 3, nom: 'Balcon', prix: '30.00', couleur: '#f59e0b' }],
+      _count: { evenements: 0 },
+    });
+
+    const salle = await getSalleById(3);
+
+    expect(salle.sections).toEqual([{ id: 10, nom: 'Balcon', prix: 30, couleur: '#f59e0b' }]);
+    expect(prisma.salle.findUnique).toHaveBeenCalledWith({
+      where: { id: 3 },
+      include: { sieges: true, sections: true, _count: { select: { evenements: true } } },
+    });
+  });
+
+  it('renvoie null pour une salle inexistante', async () => {
+    prisma.salle.findUnique.mockResolvedValue(null);
+    await expect(getSalleById(999)).resolves.toBeNull();
   });
 });

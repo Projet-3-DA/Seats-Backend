@@ -20,6 +20,11 @@ const prisma = {
     createMany: jest.fn(),
     deleteMany: jest.fn(),
     findMany: jest.fn(),
+    updateMany: jest.fn(),
+  },
+  section: {
+    create: jest.fn(),
+    deleteMany: jest.fn(),
   },
   evenement: {
     create: jest.fn(),

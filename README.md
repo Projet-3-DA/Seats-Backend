@@ -86,7 +86,8 @@ Toutes les routes sont préfixées par `/api`. `GET /` renvoie un simple statut 
 | GET | `/api/auth/me` | Utilisateur courant (JWT requis) |
 | GET | `/api/salles` | Lister les salles de l'organisateur connecté (JWT requis) |
 | POST | `/api/salles` | Créer une salle (JWT requis, rôle `organisateur`) |
-| GET | `/api/salles/:id` | Détail d'une salle |
+| GET | `/api/salles/:id` | Détail d'une salle, avec ses sièges et ses sections tarifaires |
+| PUT | `/api/salles/:id/sections` | Remplacer les sections tarifaires de la salle (nom, prix, couleur, sièges) ; un siège appartient à une seule section, hors section il est vendu au tarif de l'événement. Impossible si un événement utilise la salle (JWT requis, rôle `organisateur`) |
 | GET | `/api/evenements` | Lister les événements |
 | POST | `/api/evenements` | Créer un événement (JWT requis, rôle `organisateur`) |
 | GET | `/api/evenements/:id/plan` | Plan de la salle avec la disponibilité des sièges |
