@@ -8,5 +8,4 @@ it.todo("Administration : liste des organisateurs avec nombre d'événements (#1
 it.todo('Administration : liste globale des événements, tous organisateurs confondus (#36)');
 it.todo("Administration : suspension/réactivation d'un compte (#20)");
 it.todo('Administration : un compte suspendu ne peut plus se connecter (#41)');
-it.todo("Temps réel : diffusion WebSocket d'un siège passé « en sélection » (#8)");
 it.todo('Temps réel : resynchronisation du plan de salle après une reconnexion (#17)');
