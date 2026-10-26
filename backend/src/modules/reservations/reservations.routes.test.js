@@ -17,7 +17,7 @@ describe('GET /api/reservations', () => {
   });
 
   it('renvoie les réservations du spectateur authentifié', async () => {
-    const liste = [{ id: 1, spectateurId: 5, evenement: { dateHeure: new Date(Date.now() + 86_400_000) } }];
+    const liste = [{ id: 1, spectateurId: 5, evenement: { dateHeure: new Date(Date.now() + 86_400_000) }, siege: {} }];
     prisma.reservation.findMany.mockResolvedValue(liste);
 
     const res = await request(app)
@@ -27,7 +27,7 @@ describe('GET /api/reservations', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
       success: true,
-      data: [{ ...liste[0], evenement: { dateHeure: liste[0].evenement.dateHeure.toISOString() }, terminee: false }],
+      data: [{ ...liste[0], evenement: { dateHeure: liste[0].evenement.dateHeure.toISOString() }, prix: null, terminee: false }],
     });
     expect(prisma.reservation.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { spectateurId: 5 } }),

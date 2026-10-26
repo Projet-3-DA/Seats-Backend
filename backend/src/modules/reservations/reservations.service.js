@@ -1,12 +1,18 @@
 const prisma = require('../../lib/prisma');
 const httpError = require('../../lib/http-error');
+const { prixSiege } = require('../../lib/prix');
 
 async function getReservationsByUser(spectateurId) {
   const reservations = await prisma.reservation.findMany({
     where: { spectateurId },
-    include: { evenement: true, siege: true },
+    include: { evenement: true, siege: { include: { section: true } } },
   });
-  return reservations.map((r) => ({ ...r, terminee: r.evenement.dateHeure < new Date() }));
+  // Prix payé pour la place : celui de la section du siège, sinon le tarif de l'événement (#11).
+  return reservations.map((r) => ({
+    ...r,
+    prix: prixSiege(r.siege, r.evenement.tarif),
+    terminee: r.evenement.dateHeure < new Date(),
+  }));
 }
 
 // Enregistre la réservation confirmée d'un ou plusieurs sièges libres pour un événement (#6). Appelée au

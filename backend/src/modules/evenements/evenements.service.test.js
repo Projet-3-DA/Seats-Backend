@@ -81,6 +81,7 @@ describe('getPlanSalle', () => {
       salle: {
         id: 19,
         nom: 'Salle A',
+        sections: [],
         sieges: [
           { id: 101, numeroRangee: 1, numeroColonne: 1 },
           { id: 102, numeroRangee: 1, numeroColonne: 2 },
@@ -93,9 +94,10 @@ describe('getPlanSalle', () => {
       evenementId: 1,
       dateHeure,
       salle: { id: 19, nom: 'Salle A' },
+      sections: [],
       sieges: [
-        { id: 101, rangee: 1, colonne: 1, etat: 'reserve' },
-        { id: 102, rangee: 1, colonne: 2, etat: 'libre' },
+        { id: 101, rangee: 1, colonne: 1, etat: 'reserve', sectionId: null, prix: null },
+        { id: 102, rangee: 1, colonne: 2, etat: 'libre', sectionId: null, prix: null },
       ],
     });
   });
@@ -103,7 +105,7 @@ describe('getPlanSalle', () => {
   it('charge les réservations confirmées et celles en sélection non expirées', async () => {
     prisma.evenement.findUnique.mockResolvedValue({
       id: 1,
-      salle: { id: 19, nom: 'Salle A', sieges: [] },
+      salle: { id: 19, nom: 'Salle A', sieges: [], sections: [] },
       reservations: [],
     });
 
@@ -112,7 +114,7 @@ describe('getPlanSalle', () => {
     expect(prisma.evenement.findUnique).toHaveBeenCalledWith({
       where: { id: 1 },
       include: {
-        salle: { include: { sieges: true } },
+        salle: { include: { sieges: { include: { section: true } }, sections: true } },
         reservations: {
           where: {
             OR: [
@@ -129,7 +131,7 @@ describe('getPlanSalle', () => {
   it('ignore les sélections expirées en comparant le délai à la date courante', async () => {
     prisma.evenement.findUnique.mockResolvedValue({
       id: 1,
-      salle: { id: 19, nom: 'Salle A', sieges: [] },
+      salle: { id: 19, nom: 'Salle A', sieges: [], sections: [] },
       reservations: [],
     });
 
@@ -154,6 +156,7 @@ describe('getVentesEvenement (#13)', () => {
     salle: {
       id: 19,
       nom: 'Salle A',
+      sections: [],
       sieges: [
         { id: 104, numeroRangee: 2, numeroColonne: 1 },
         { id: 101, numeroRangee: 1, numeroColonne: 1 },
@@ -237,5 +240,60 @@ describe('getVentesEvenement (#13)', () => {
     prisma.evenement.findUnique.mockResolvedValue(evenement);
 
     await expect(getVentesEvenement(1, 8)).rejects.toMatchObject({ status: 403 });
+  });
+});
+
+describe('prix par section (#11)', () => {
+  const balcon = { id: 10, nom: 'Balcon', prix: '40.00', couleur: '#f59e0b' };
+  const evenement = {
+    id: 1,
+    organisateurId: 7,
+    titre: 'Concert',
+    dateHeure: new Date('2099-11-05T19:00:00Z'),
+    tarif: '25.00',
+    salle: {
+      id: 19,
+      nom: 'Salle A',
+      sections: [balcon],
+      sieges: [
+        { id: 101, numeroRangee: 1, numeroColonne: 1, sectionId: 10, section: balcon },
+        { id: 102, numeroRangee: 1, numeroColonne: 2, sectionId: null, section: null },
+        { id: 103, numeroRangee: 1, numeroColonne: 3, sectionId: 10, section: balcon },
+      ],
+    },
+    reservations: [
+      { id: 1, siegeId: 101, statut: 'confirmee', spectateur: { prenom: 'A', nom: 'B', email: 'a@b.c' } },
+      { id: 2, siegeId: 102, statut: 'confirmee', spectateur: { prenom: 'C', nom: 'D', email: 'c@d.e' } },
+    ],
+  };
+
+  it("le plan donne le prix de chaque siège : sa section, sinon le tarif de l'événement", async () => {
+    prisma.evenement.findUnique.mockResolvedValue(evenement);
+
+    const plan = await getPlanSalle(1);
+
+    expect(plan.sections).toEqual([{ id: 10, nom: 'Balcon', prix: 40, couleur: '#f59e0b' }]);
+    expect(plan.sieges.map((s) => [s.id, s.sectionId, s.prix])).toEqual([
+      [101, 10, 40],
+      [102, null, 25],
+      [103, 10, 40],
+    ]);
+  });
+
+  it('la recette additionne le prix de chaque place vendue', async () => {
+    prisma.evenement.findUnique.mockResolvedValue(evenement);
+
+    const ventes = await getVentesEvenement(1, 7);
+
+    expect(ventes.recette).toBe(65); // 40 (balcon) + 25 (tarif de l'événement)
+    expect(ventes.sections).toEqual([{ id: 10, nom: 'Balcon', prix: 40, couleur: '#f59e0b' }]);
+  });
+
+  it("calcule la recette des sections même si l'événement n'a pas de tarif", async () => {
+    prisma.evenement.findUnique.mockResolvedValue({ ...evenement, tarif: null, reservations: [evenement.reservations[0]] });
+
+    const ventes = await getVentesEvenement(1, 7);
+
+    expect(ventes.recette).toBe(40);
   });
 });

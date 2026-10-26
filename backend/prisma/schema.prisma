@@ -38,8 +38,26 @@ model Salle{
 
     sieges Siege[]
     evenements Evenement[]
+    sections Section[]
 
     @@unique([organisateurId,nom])
+}
+
+// Section tarifaire d'une salle (#11), ex. parterre, balcon. Un siège sans section est vendu au tarif
+// de l'événement.
+model Section {
+    id Int @id @default(autoincrement())
+    salleId Int
+    salle Salle @relation(fields: [salleId], references: [id], onDelete: Cascade)
+    nom String
+    prix Decimal @db.Decimal(8, 2)
+    // Couleur d'affichage sur les plans (#34), au format #RRGGBB.
+    couleur String
+    createdAt DateTime @default(now())
+
+    sieges Siege[]
+
+    @@unique([salleId, nom])
 }
 
 model Siege{
@@ -49,6 +67,9 @@ model Siege{
     numeroRangee Int
     numeroColonne Int
     createdAt DateTime @default(now())
+    // Un siège appartient à au plus une section à la fois (#11).
+    sectionId Int?
+    section Section? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
 
     reservations Reservation[]
 
