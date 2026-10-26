@@ -85,6 +85,8 @@ describe('getEvenement (#36)', () => {
           { id: 11, numeroRangee: 1, numeroColonne: 1 },
           { id: 12, numeroRangee: 1, numeroColonne: 2 },
         ],
+        // Salle au tarif unique de l'événement : pas de sections tarifaires (#11).
+        sections: [],
       },
       reservations: [
         { id: 50, siegeId: 11, statut: 'confirmee', spectateur: { prenom: 'S', nom: 'P', email: 's@test.local' } },
