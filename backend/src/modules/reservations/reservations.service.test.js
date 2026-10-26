@@ -1,7 +1,7 @@
 jest.mock('../../lib/prisma');
 
 const prisma = require('../../lib/prisma');
-const { getReservationsByUser, reserverSieges, annulerReservation } = require('./reservations.service');
+const { getReservationsByUser, reserverSieges, annulerReservation, annulerMaReservation } = require('./reservations.service');
 
 it.todo('cancelReservation() libère les sièges et refuse si la réservation ne m\'appartient pas (#12)');
 it.todo("reserverSieges() empêche de sélectionner un siège déjà en sélection par un autre (#26, #30, #31)");
@@ -168,6 +168,55 @@ describe('annulerReservation (#14)', () => {
     prisma.reservation.updateMany.mockResolvedValue({ count: 0 });
 
     await expect(annulerReservation({ reservationId: 5, organisateurId: 7 })).rejects.toMatchObject({ status: 409 });
+  });
+});
+
+describe('annulerMaReservation (#12)', () => {
+  const dateFuture = new Date(Date.now() + 86_400_000);
+  const datePassee = new Date(Date.now() - 86_400_000);
+  const reservation = { id: 5, statut: 'confirmee', spectateurId: 3, evenement: { id: 1, dateHeure: dateFuture } };
+
+  it("annule la réservation et libère le siège", async () => {
+    prisma.reservation.findUnique
+      .mockResolvedValueOnce(reservation)
+      .mockResolvedValueOnce({ id: 5, statut: 'annulee', actif: null });
+    prisma.reservation.updateMany.mockResolvedValue({ count: 1 });
+
+    const annulee = await annulerMaReservation({ reservationId: 5, spectateurId: 3 });
+
+    expect(prisma.reservation.updateMany).toHaveBeenCalledWith({
+      where: { id: 5, statut: { not: 'annulee' } },
+      data: { statut: 'annulee', actif: null, motifAnnulation: null, dateAnnulation: expect.any(Date) },
+    });
+    expect(annulee).toMatchObject({ statut: 'annulee' });
+  });
+
+  it("refuse (404) une réservation qui n'existe pas", async () => {
+    prisma.reservation.findUnique.mockResolvedValue(null);
+
+    await expect(annulerMaReservation({ reservationId: 999, spectateurId: 3 })).rejects.toMatchObject({ status: 404 });
+    expect(prisma.reservation.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuse (403) une réservation qui ne m'appartient pas", async () => {
+    prisma.reservation.findUnique.mockResolvedValue(reservation);
+
+    await expect(annulerMaReservation({ reservationId: 5, spectateurId: 99 })).rejects.toMatchObject({ status: 403 });
+    expect(prisma.reservation.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('refuse (400) une réservation dont l\'événement est déjà passé', async () => {
+    prisma.reservation.findUnique.mockResolvedValue({ ...reservation, evenement: { id: 1, dateHeure: datePassee } });
+
+    await expect(annulerMaReservation({ reservationId: 5, spectateurId: 3 })).rejects.toMatchObject({ status: 400 });
+    expect(prisma.reservation.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('refuse (409) une réservation déjà annulée', async () => {
+    prisma.reservation.findUnique.mockResolvedValue({ ...reservation, statut: 'annulee' });
+    prisma.reservation.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(annulerMaReservation({ reservationId: 5, spectateurId: 3 })).rejects.toMatchObject({ status: 409 });
   });
 });
 

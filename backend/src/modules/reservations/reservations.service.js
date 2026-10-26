@@ -72,9 +72,22 @@ async function reserverSieges({ spectateurId, evenementId, siegeIds }) {
   }
 }
 
+// Partagé par annulerReservation (#14) et annulerMaReservation (#12) : marque la réservation annulée
+// et libère le siège (actif passe à NULL, ne compte plus dans la contrainte unique, voir schema.prisma).
+// La condition sur le statut est dans la requête elle-même : deux annulations simultanées de la même
+// réservation n'en appliquent qu'une, la seconde reçoit 409.
+async function marquerAnnulee(reservationId, motif) {
+  const { count } = await prisma.reservation.updateMany({
+    where: { id: reservationId, statut: { not: 'annulee' } },
+    data: { statut: 'annulee', actif: null, motifAnnulation: motif || null, dateAnnulation: new Date() },
+  });
+  if (count === 0) throw httpError(409, 'Cette réservation est déjà annulée.');
+
+  return await prisma.reservation.findUnique({ where: { id: reservationId } });
+}
+
 // Annulation par l'organisateur de l'événement (#14). La réservation reste dans l'historique du
-// spectateur (statut « annulee », motif et date), et le siège redevient libre immédiatement : actif passe
-// à NULL et ne compte plus dans la contrainte unique (voir schema.prisma).
+// spectateur (statut « annulee », motif et date).
 async function annulerReservation({ reservationId, organisateurId, motif }) {
   const reservation = await prisma.reservation.findUnique({
     where: { id: reservationId },
@@ -85,15 +98,25 @@ async function annulerReservation({ reservationId, organisateurId, motif }) {
     throw httpError(403, "Cette réservation concerne l'événement d'un autre organisateur.");
   }
 
-  // La condition sur le statut est dans la requête elle-même : deux annulations simultanées de la même
-  // réservation n'en appliquent qu'une, la seconde reçoit 409.
-  const { count } = await prisma.reservation.updateMany({
-    where: { id: reservationId, statut: { not: 'annulee' } },
-    data: { statut: 'annulee', actif: null, motifAnnulation: motif || null, dateAnnulation: new Date() },
-  });
-  if (count === 0) throw httpError(409, 'Cette réservation est déjà annulée.');
-
-  return await prisma.reservation.findUnique({ where: { id: reservationId } });
+  return marquerAnnulee(reservationId, motif);
 }
 
-module.exports = { getReservationsByUser, reserverSieges, annulerReservation };
+// Annulation par le spectateur propriétaire de la réservation (#12). Possible uniquement avant la date
+// de l'événement : une fois l'événement passé, la réservation reste dans l'historique telle quelle.
+async function annulerMaReservation({ reservationId, spectateurId, motif }) {
+  const reservation = await prisma.reservation.findUnique({
+    where: { id: reservationId },
+    include: { evenement: true },
+  });
+  if (!reservation) throw httpError(404, 'Réservation introuvable.');
+  if (reservation.spectateurId !== spectateurId) {
+    throw httpError(403, 'Cette réservation ne vous appartient pas.');
+  }
+  if (reservation.evenement.dateHeure <= new Date()) {
+    throw httpError(400, 'Cet événement a déjà eu lieu : la réservation ne peut plus être annulée.');
+  }
+
+  return marquerAnnulee(reservationId, motif);
+}
+
+module.exports = { getReservationsByUser, reserverSieges, annulerReservation, annulerMaReservation };
