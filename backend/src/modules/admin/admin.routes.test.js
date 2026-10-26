@@ -78,7 +78,7 @@ describe('GET /api/admin/evenements/:id (#36)', () => {
       dateHeure: new Date(Date.now() + 86_400_000),
       tarif: null,
       organisateur: { id: 42, prenom: 'Autre', nom: 'Org', email: 'autre@test.local' },
-      salle: { id: 3, nom: 'Salle A', sieges: [{ id: 11, numeroRangee: 1, numeroColonne: 1 }] },
+      salle: { id: 3, nom: 'Salle A', sieges: [{ id: 11, numeroRangee: 1, numeroColonne: 1 }], sections: [] },
       reservations: [],
     });
 
