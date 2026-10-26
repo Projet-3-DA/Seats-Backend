@@ -1,4 +1,5 @@
-require('dotenv/config');
+// Charge backend/.env (DATABASE_URL) avant de créer le client.
+require('../config/env');
 const { PrismaClient } = require('@prisma/client');
 const { PrismaPg } = require('@prisma/adapter-pg');
 const { Pool } = require('pg');
