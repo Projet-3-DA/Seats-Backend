@@ -6,7 +6,8 @@ const app = require('../../app');
 const prisma = require('../../lib/prisma');
 const githubService = require('./github.service');
 
-const FRONTEND = 'http://localhost:5173/connexion-externe';
+// Dépend de FRONTEND_URL (le .env local peut pointer sur Expo, port 8081).
+const FRONTEND = `${require('../../config/env').frontendUrl}/connexion-externe`;
 
 describe('GET /api/auth/github', () => {
   it('redirige vers GitHub et garde le state dans un cookie httpOnly', async () => {
