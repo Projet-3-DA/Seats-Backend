@@ -10,7 +10,9 @@ datasource db {
 model Utilisateur {
     id Int @id @default(autoincrement())
     email String @unique
-    motDePasse String
+    // null pour un compte créé par la connexion GitHub (#101).
+    motDePasse String?
+    githubId String? @unique
     nom String
     prenom String
     role Role
