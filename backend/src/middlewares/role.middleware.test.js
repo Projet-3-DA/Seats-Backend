@@ -7,11 +7,7 @@ function reponseFake() {
   return res;
 }
 
-// roleMiddleware n'est câblé sur aucune route pour l'instant (grep confirmé :
-// aucun module ne l'importe) — toutes les routes sont actuellement ouvertes.
-// À écrire une fois câblé, en tests d'intégration HTTP directs (#9, #33) :
-it.todo('POST /api/evenements refuse un spectateur avec 403 (#3, #33)');
-it.todo('POST /api/salles refuse un spectateur avec 403 (#33)');
+// Les tests HTTP directs par route et par rôle sont dans acces-par-role.test.js (#9, #33).
 it.todo("les routes d'administration refusent organisateur et spectateur (#19, #33)");
 
 describe('roleMiddleware', () => {
