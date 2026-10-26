@@ -10,7 +10,9 @@ datasource db {
 model Utilisateur {
     id Int @id @default(autoincrement())
     email String @unique
-    motDePasse String
+    // null pour un compte créé par la connexion GitHub (#101).
+    motDePasse String?
+    githubId String? @unique
     nom String
     prenom String
     role Role
@@ -19,6 +21,20 @@ model Utilisateur {
     salles Salle[]
     evenements Evenement[]
     reservations Reservation[]
+    identitesExternes IdentiteExterne[]
+}
+
+// Compte chez un fournisseur OpenID Connect (Google, Microsoft) relié à un utilisateur (#114).
+// `sujet` est le `sub` de l'ID token : identifiant stable et unique chez ce fournisseur.
+model IdentiteExterne {
+    id Int @id @default(autoincrement())
+    fournisseur String
+    sujet String
+    utilisateurId Int
+    utilisateur Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+    createdAt DateTime @default(now())
+
+    @@unique([fournisseur, sujet])
 }
 
 enum Role{
