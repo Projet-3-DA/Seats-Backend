@@ -10,7 +10,7 @@ Elle gère les comptes (spectateur, organisateur, administrateur), les salles et
 
 - Node.js 24, Express 5
 - PostgreSQL (hébergé sur Supabase) via Prisma 7
-- Authentification JWT (`jsonwebtoken`, `bcryptjs`) et connexion GitHub (OAuth 2)
+- Authentification JWT (`jsonwebtoken`, `bcryptjs`) et connexion GitHub (OAuth 2), Google et Microsoft (OpenID Connect, `jose`)
 - Supabase Storage pour les affiches d'événements
 - Jest + Supertest pour les tests
 
@@ -55,6 +55,9 @@ npm start            # http://localhost:3000
 | `GITHUB_CLIENT_ID` | Client ID de l'OAuth App GitHub |
 | `GITHUB_CLIENT_SECRET` | Secret de l'OAuth App GitHub — jamais côté frontend |
 | `GITHUB_CALLBACK_URL` | Callback déclaré dans l'OAuth App (défaut : `http://localhost:3000/api/auth/github/callback`) |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Client OAuth Google (OpenID Connect) — facultatif |
+| `MICROSOFT_CLIENT_ID` / `MICROSOFT_CLIENT_SECRET` | Application Microsoft Entra ID (OpenID Connect) — facultatif |
+| `BACKEND_URL` | Adresse publique de l'API pour les callbacks OIDC (défaut : `http://localhost:3000`) |
 | `FRONTEND_URL` | Adresse du frontend, où revenir après la connexion GitHub (défaut : `http://localhost:5173`) |
 
 ## Tests
@@ -89,6 +92,9 @@ Toutes les routes sont préfixées par `/api`. `GET /` renvoie un simple statut 
 | GET | `/api/auth/me` | Utilisateur courant (JWT requis) |
 | GET | `/api/auth/github` | Redirige vers GitHub pour se connecter (OAuth 2) |
 | GET | `/api/auth/github/callback` | Retour de GitHub : crée le compte au besoin (rôle `spectateur`) puis redirige vers `FRONTEND_URL/connexion-externe#token=<JWT>` (ou `#erreur=<message>`) |
+| GET | `/api/auth/fournisseurs` | Fournisseurs de connexion externe configurés (ex. `["github", "google"]`) |
+| GET | `/api/auth/:fournisseur` | Connexion OpenID Connect (`google`, `microsoft`) : redirige vers le fournisseur (PKCE, nonce, state) |
+| GET | `/api/auth/:fournisseur/callback` | Retour du fournisseur : vérifie l'ID token, crée ou retrouve le compte, puis redirige comme pour GitHub |
 | GET | `/api/salles` | Lister les salles de l'organisateur connecté (JWT requis) |
 | POST | `/api/salles` | Créer une salle (JWT requis, rôle `organisateur`) |
 | GET | `/api/salles/:id` | Détail d'une salle |

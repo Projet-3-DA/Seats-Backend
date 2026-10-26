@@ -9,6 +9,10 @@ const prisma = {
     update: jest.fn(),
     upsert: jest.fn(),
   },
+  identiteExterne: {
+    create: jest.fn(),
+    findUnique: jest.fn(),
+  },
   salle: {
     create: jest.fn(),
     findUnique: jest.fn(),
