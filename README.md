@@ -88,6 +88,7 @@ Toutes les routes sont préfixées par `/api`. `GET /` renvoie un simple statut 
 
 | Méthode | Route | Description |
 | --- | --- | --- |
+| POST | `/api/auth/register` | Créer un compte (courriel, mot de passe, rôle `spectateur` ou `organisateur`) |
 | POST | `/api/auth/login` | Se connecter (renvoie un JWT valable 1 h) |
 | GET | `/api/auth/me` | Utilisateur courant (JWT requis) |
 | GET | `/api/auth/github` | Redirige vers GitHub pour se connecter (OAuth 2) |
