@@ -133,6 +133,31 @@ describe('connexion', () => {
   });
 });
 
+describe('connexion avec un rôle choisi à l\'inscription', () => {
+  it('crée un nouveau compte avec le rôle choisi', async () => {
+    simulerGithub();
+    prisma.utilisateur.findUnique.mockResolvedValue(null);
+    prisma.utilisateur.create.mockImplementation(async ({ data }) => ({ id: 11, ...data }));
+
+    const token = await connexion('code-123', 'organisateur');
+
+    expect(prisma.utilisateur.create.mock.calls[0][0].data.role).toBe('organisateur');
+    expect(jwt.verify(token, 'secret-test')).toMatchObject({ userId: 11, role: 'organisateur' });
+  });
+
+  it('ne change pas le rôle d\'un compte existant', async () => {
+    simulerGithub();
+    prisma.utilisateur.findUnique.mockImplementation(async ({ where }) =>
+      where.githubId === '42' ? { id: 3, role: 'spectateur' } : null,
+    );
+
+    const token = await connexion('code-123', 'organisateur');
+
+    expect(prisma.utilisateur.create).not.toHaveBeenCalled();
+    expect(jwt.verify(token, 'secret-test')).toMatchObject({ userId: 3, role: 'spectateur' });
+  });
+});
+
 describe('connexion avec une GitHub App sans permission « Email addresses »', () => {
   it('continue sans courriel quand /user/emails est refusé', async () => {
     jest.spyOn(console, 'error').mockImplementation(() => {});

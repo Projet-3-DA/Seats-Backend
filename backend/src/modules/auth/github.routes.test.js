@@ -6,6 +6,11 @@ const app = require('../../app');
 const prisma = require('../../lib/prisma');
 const githubService = require('./github.service');
 
+// Cookie de la tentative GitHub : { state, role? } en JSON.
+function cookieGithub(state, role) {
+  return `github_state=${encodeURIComponent(JSON.stringify({ state, role }))}`;
+}
+
 // Dépend de FRONTEND_URL (le .env local peut pointer sur Expo, port 8081).
 const FRONTEND = `${require('../../config/env').frontendUrl}/connexion-externe`;
 
@@ -19,7 +24,7 @@ describe('GET /api/auth/github', () => {
     const state = new URL(res.headers.location).searchParams.get('state');
     expect(state).toMatch(/^[0-9a-f]{32}$/);
     const cookie = res.headers['set-cookie'][0];
-    expect(cookie).toContain(`github_state=${state}`);
+    expect(cookie).toContain(cookieGithub(state));
     expect(cookie).toMatch(/HttpOnly/);
   });
 
@@ -40,16 +45,16 @@ describe('GET /api/auth/github/callback', () => {
 
     const res = await request(app)
       .get('/api/auth/github/callback?code=c1&state=s1')
-      .set('Cookie', 'github_state=s1');
+      .set('Cookie', cookieGithub('s1'));
 
-    expect(githubService.connexion).toHaveBeenCalledWith('c1');
+    expect(githubService.connexion).toHaveBeenCalledWith('c1', undefined);
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe(`${FRONTEND}#token=jwt-abc`);
   });
 
   it.each([
     ['sans cookie', '/api/auth/github/callback?code=c1&state=s1', null],
-    ['state différent', '/api/auth/github/callback?code=c1&state=pirate', 'github_state=s1'],
+    ['state différent', '/api/auth/github/callback?code=c1&state=pirate', cookieGithub('s1')],
   ])('refuse un callback %s (CSRF) sans contacter GitHub', async (_cas, url, cookie) => {
     const req = request(app).get(url);
     const res = await (cookie ? req.set('Cookie', cookie) : req);
@@ -61,7 +66,7 @@ describe('GET /api/auth/github/callback', () => {
   it('renvoie l\'erreur au frontend si l\'utilisateur refuse sur GitHub', async () => {
     const res = await request(app)
       .get('/api/auth/github/callback?error=access_denied&state=s1')
-      .set('Cookie', 'github_state=s1');
+      .set('Cookie', cookieGithub('s1'));
 
     expect(githubService.connexion).not.toHaveBeenCalled();
     expect(decodeURIComponent(res.headers.location)).toMatch(/#erreur=Connexion GitHub annulée/);
@@ -73,7 +78,7 @@ describe('GET /api/auth/github/callback', () => {
 
     const res = await request(app)
       .get('/api/auth/github/callback?code=c1&state=s1')
-      .set('Cookie', 'github_state=s1');
+      .set('Cookie', cookieGithub('s1'));
 
     expect(decodeURIComponent(res.headers.location)).toBe(`${FRONTEND}#erreur=Erreur lors de la connexion GitHub.`);
   });
@@ -86,5 +91,30 @@ describe('POST /api/auth/login (compte GitHub)', () => {
     const res = await request(app).post('/api/auth/login').send({ email: 'mona@exemple.com', password: 'x' });
 
     expect(res.status).toBe(401);
+  });
+});
+
+describe("rôle choisi sur la page d'inscription (GitHub)", () => {
+  it('garde le rôle demandé dans le cookie et le transmet à la création du compte', async () => {
+    githubService.urlAutorisation.mockImplementation((state) => `https://github.com/login/oauth/authorize?state=${state}`);
+
+    const res = await request(app).get('/api/auth/github?role=organisateur');
+
+    const state = new URL(res.headers.location).searchParams.get('state');
+    expect(res.headers['set-cookie'][0]).toContain(cookieGithub(state, 'organisateur'));
+
+    githubService.connexion.mockResolvedValue('jwt-org');
+    await request(app)
+      .get(`/api/auth/github/callback?code=c1&state=${state}`)
+      .set('Cookie', cookieGithub(state, 'organisateur'));
+    expect(githubService.connexion).toHaveBeenCalledWith('c1', 'organisateur');
+  });
+
+  it.each(['administrateur', 'super-admin'])('refuse le rôle « %s » (400) sans aller chez GitHub', async (role) => {
+    const res = await request(app).get(`/api/auth/github?role=${role}`);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/rôle/);
+    expect(githubService.urlAutorisation).not.toHaveBeenCalled();
   });
 });

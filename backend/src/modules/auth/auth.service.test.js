@@ -4,7 +4,36 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const prisma = require('../../lib/prisma');
 const { jwtSecret } = require('../../config/env');
-const { login } = require('./auth.service');
+const { register, login } = require('./auth.service');
+
+describe('register', () => {
+  it('hache le mot de passe avant de le stocker, et ne le renvoie jamais', async () => {
+    const data = { email: 'a@b.com', motDePasse: 'secret', nom: 'D', prenom: 'J', role: 'spectateur' };
+    prisma.utilisateur.create.mockImplementation(async (args) => ({ id: 1, ...args.data }));
+
+    const cree = await register(data);
+
+    expect(cree.motDePasse).toBeUndefined();
+    const donneesEnvoyees = prisma.utilisateur.create.mock.calls[0][0].data;
+    expect(donneesEnvoyees.motDePasse).not.toBe('secret');
+    expect(await bcrypt.compare('secret', donneesEnvoyees.motDePasse)).toBe(true);
+  });
+
+  it('rejette un champ requis manquant', async () => {
+    await expect(register({ email: 'a@b.com', nom: 'D', prenom: 'J', role: 'spectateur' })).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringMatching(/motDePasse/),
+    });
+  });
+
+  it('rejette un courriel déjà utilisé, avec un message clair', async () => {
+    prisma.utilisateur.create.mockRejectedValue(Object.assign(new Error('unique constraint'), { code: 'P2002' }));
+
+    await expect(
+      register({ email: 'a@b.com', motDePasse: 'secret', nom: 'D', prenom: 'J', role: 'spectateur' }),
+    ).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/existe déjà/) });
+  });
+});
 
 describe('login', () => {
   it('génère un token JWT à la connexion réussie, sans le mot de passe', async () => {

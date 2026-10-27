@@ -131,7 +131,7 @@ function nomComplet(claims) {
 
 // Retrouve l'utilisateur par son compte externe, sinon par courriel vérifié (si le fournisseur le
 // permet), sinon le crée avec le rôle par défaut.
-async function trouverOuCreerUtilisateur(nom, f, claims) {
+async function trouverOuCreerUtilisateur(nom, f, claims, role) {
   const cle = { fournisseur: nom, sujet: claims.sub };
   const identite = await prisma.identiteExterne.findUnique({
     where: { fournisseur_sujet: cle },
@@ -152,20 +152,21 @@ async function trouverOuCreerUtilisateur(nom, f, claims) {
       // relie pas, une adresse non routable propre à ce compte externe.
       email: courrielVerifie && !existant ? courrielVerifie : `${claims.sub}@${nom}.invalid`,
       ...nomComplet(claims),
-      role: ROLE_PAR_DEFAUT,
+      role,
       identitesExternes: { create: cle },
     },
   });
 }
 
-async function connexion(nom, code, { nonce, codeVerifier }) {
+// `role` : choisi sur la page d'inscription ; ne s'applique qu'à un compte créé maintenant.
+async function connexion(nom, code, { nonce, codeVerifier, role = ROLE_PAR_DEFAUT }) {
   const f = fournisseur(nom);
   if (!code) throw httpError(400, 'Code de connexion manquant.');
 
   const config = await decouvrir(nom);
   const idToken = await echangerCode(nom, f, config, code, codeVerifier);
   const claims = await verifierIdToken(f, config, idToken, nonce);
-  const user = await trouverOuCreerUtilisateur(nom, f, claims);
+  const user = await trouverOuCreerUtilisateur(nom, f, claims, role);
 
   return jwt.sign({ userId: user.id, role: user.role }, env.jwtSecret, { expiresIn: '1h' });
 }

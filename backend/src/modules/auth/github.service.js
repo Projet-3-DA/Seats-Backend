@@ -77,7 +77,7 @@ function decouperNom(profil) {
 
 // Retrouve l'utilisateur par son identifiant GitHub, sinon par son courriel vérifié (le compte est alors
 // relié à GitHub), sinon le crée avec le rôle par défaut.
-async function trouverOuCreerUtilisateur(profil, email) {
+async function trouverOuCreerUtilisateur(profil, email, role) {
   const githubId = String(profil.id);
 
   const parGithub = await prisma.utilisateur.findUnique({ where: { githubId } });
@@ -92,12 +92,14 @@ async function trouverOuCreerUtilisateur(profil, email) {
   }
 
   return prisma.utilisateur.create({
-    data: { email: courriel, githubId, ...decouperNom(profil), role: ROLE_PAR_DEFAUT },
+    data: { email: courriel, githubId, ...decouperNom(profil), role },
   });
 }
 
 // Échange le code reçu au callback contre le même JWT que la connexion par mot de passe.
-async function connexion(code) {
+// `role` : choisi sur la page d'inscription ; ne s'applique qu'à un compte créé maintenant (un compte
+// existant garde son rôle).
+async function connexion(code, role = ROLE_PAR_DEFAUT) {
   verifierConfiguration();
   if (!code) {
     throw httpError(400, 'Code GitHub manquant.');
@@ -106,7 +108,7 @@ async function connexion(code) {
   const accessToken = await echangerCode(code);
   const profil = await appelGithub('/user', accessToken);
   const email = await courrielVerifie(accessToken);
-  const user = await trouverOuCreerUtilisateur(profil, email);
+  const user = await trouverOuCreerUtilisateur(profil, email, role);
 
   return jwt.sign({ userId: user.id, role: user.role }, env.jwtSecret, { expiresIn: '1h' });
 }

@@ -88,12 +88,13 @@ Toutes les routes sont préfixées par `/api`. `GET /` renvoie un simple statut 
 
 | Méthode | Route | Description |
 | --- | --- | --- |
+| POST | `/api/auth/register` | Créer un compte (courriel, mot de passe, rôle `spectateur` ou `organisateur`) |
 | POST | `/api/auth/login` | Se connecter (renvoie un JWT valable 1 h) |
 | GET | `/api/auth/me` | Utilisateur courant (JWT requis) |
-| GET | `/api/auth/github` | Redirige vers GitHub pour se connecter (OAuth 2) |
+| GET | `/api/auth/github` | Redirige vers GitHub pour se connecter (OAuth 2). `?role=spectateur\|organisateur` (facultatif, page d'inscription) : rôle d'un compte créé à cette connexion |
 | GET | `/api/auth/github/callback` | Retour de GitHub : crée le compte au besoin (rôle `spectateur`) puis redirige vers `FRONTEND_URL/connexion-externe#token=<JWT>` (ou `#erreur=<message>`) |
 | GET | `/api/auth/fournisseurs` | Fournisseurs de connexion externe configurés (ex. `["github", "google"]`) |
-| GET | `/api/auth/:fournisseur` | Connexion OpenID Connect (`google`, `microsoft`) : redirige vers le fournisseur (PKCE, nonce, state) |
+| GET | `/api/auth/:fournisseur` | Connexion OpenID Connect (`google`, `microsoft`) : redirige vers le fournisseur (PKCE, nonce, state). Même paramètre `?role=` que GitHub |
 | GET | `/api/auth/:fournisseur/callback` | Retour du fournisseur : vérifie l'ID token, crée ou retrouve le compte, puis redirige comme pour GitHub |
 | GET | `/api/salles` | Lister les salles de l'organisateur connecté (JWT requis) |
 | POST | `/api/salles` | Créer une salle (JWT requis, rôle `organisateur`) |

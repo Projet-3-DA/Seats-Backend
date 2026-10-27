@@ -7,6 +7,74 @@ const app = require('../../app');
 const prisma = require('../../lib/prisma');
 const { jwtSecret } = require('../../config/env');
 
+function inscriptionValide(overrides = {}) {
+  return {
+    email: 'a@exemple.com',
+    motDePasse: 'secret123',
+    nom: 'Dupont',
+    prenom: 'Jean',
+    role: 'spectateur',
+    ...overrides,
+  };
+}
+
+describe('POST /api/auth/register', () => {
+  it.each(['email', 'motDePasse', 'nom', 'prenom', 'role'])('refuse si "%s" est manquant (400)', async (champ) => {
+    const res = await request(app).post('/api/auth/register').send(inscriptionValide({ [champ]: undefined }));
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(new RegExp(champ));
+    expect(prisma.utilisateur.create).not.toHaveBeenCalled();
+  });
+
+  it('hache le mot de passe avant de l\'enregistrer, et ne le renvoie jamais', async () => {
+    prisma.utilisateur.create.mockImplementation(async ({ data }) => ({ id: 1, ...data }));
+
+    const res = await request(app).post('/api/auth/register').send(inscriptionValide());
+
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.motDePasse).toBeUndefined();
+  });
+
+  it.each(['administrateur', 'super-admin'])('refuse de créer un compte avec le rôle "%s" (400) (#9)', async (role) => {
+    const res = await request(app).post('/api/auth/register').send(inscriptionValide({ role }));
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/rôle/);
+    expect(prisma.utilisateur.create).not.toHaveBeenCalled();
+  });
+
+  it("n'enregistre que les champs attendus, même si la requête en ajoute (#9)", async () => {
+    prisma.utilisateur.create.mockImplementation(async ({ data }) => ({ id: 1, ...data }));
+
+    const res = await request(app)
+      .post('/api/auth/register')
+      .send(inscriptionValide({ id: 999, createdAt: '2000-01-01T00:00:00.000Z' }));
+
+    expect(res.status).toBe(201);
+    const { data } = prisma.utilisateur.create.mock.calls[0][0];
+    expect(Object.keys(data).sort()).toEqual(['email', 'motDePasse', 'nom', 'prenom', 'role']);
+  });
+
+  it('traduit un email déjà utilisé en 409', async () => {
+    prisma.utilisateur.create.mockRejectedValue(Object.assign(new Error('unique constraint'), { code: 'P2002' }));
+
+    const res = await request(app).post('/api/auth/register').send(inscriptionValide());
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/existe déjà/);
+  });
+
+  it('renvoie 500 pour une erreur inattendue de la base', async () => {
+    prisma.utilisateur.create.mockRejectedValue(new Error('boum'));
+
+    const res = await request(app).post('/api/auth/register').send(inscriptionValide());
+
+    expect(res.status).toBe(500);
+  });
+});
+
 async function utilisateurAvecMotDePasse(motDePasse, overrides = {}) {
   return {
     id: 1,
