@@ -62,4 +62,4 @@ async function getUserById(id) {
   return user ? sansMotDePasse(user) : null;
 }
 
-module.exports = { register, login, getUserById };
+module.exports = { ROLES_INSCRIPTION, register, login, getUserById };

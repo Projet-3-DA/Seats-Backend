@@ -101,3 +101,29 @@ describe('GET /api/auth/:fournisseur/callback', () => {
     expect(decodeURIComponent(res.headers.location)).toMatch(/#erreur=Connexion annulée/);
   });
 });
+
+describe("rôle choisi sur la page d'inscription (OIDC)", () => {
+  it('garde le rôle demandé dans la tentative et le transmet à la connexion', async () => {
+    oidcService.nouvelleTentative.mockReturnValue(TENTATIVE);
+    oidcService.urlAutorisation.mockResolvedValue('https://auth.google.test/authorize?state=s1');
+
+    const res = await request(app).get('/api/auth/google?role=organisateur');
+
+    expect(res.headers['set-cookie'][0]).toContain(
+      cookieTentative({ ...TENTATIVE, fournisseur: 'google', role: 'organisateur' }),
+    );
+
+    oidcService.connexion.mockResolvedValue('jwt-org');
+    await request(app)
+      .get('/api/auth/google/callback?code=c1&state=s1')
+      .set('Cookie', cookieTentative({ ...TENTATIVE, fournisseur: 'google', role: 'organisateur' }));
+    expect(oidcService.connexion).toHaveBeenCalledWith('google', 'c1', expect.objectContaining({ role: 'organisateur' }));
+  });
+
+  it('refuse le rôle administrateur (400)', async () => {
+    const res = await request(app).get('/api/auth/google?role=administrateur');
+
+    expect(res.status).toBe(400);
+    expect(oidcService.urlAutorisation).not.toHaveBeenCalled();
+  });
+});

@@ -5,7 +5,8 @@ const oidcService = require('./oidc.service');
 const env = require('../../config/env');
 
 // Le `state` envoyé à GitHub est aussi gardé dans un cookie httpOnly : au callback, les deux doivent
-// correspondre, sinon la requête ne vient pas de ce navigateur (CSRF).
+// correspondre, sinon la requête ne vient pas de ce navigateur (CSRF). Le cookie garde aussi le rôle
+// choisi sur la page d'inscription, s'il y en a un.
 const COOKIE_STATE = 'github_state';
 const OPTIONS_COOKIE = { httpOnly: true, sameSite: 'lax', path: '/api/auth/github', maxAge: 10 * 60 * 1000 };
 
@@ -44,11 +45,33 @@ async function me(req, res, next) {
   }
 }
 
+// Rôle demandé pour un nouveau compte (`?role=`, envoyé par la page d'inscription). Absent : rôle par
+// défaut. Jamais `administrateur` : seuls les rôles ouverts à l'inscription sont acceptés (#9).
+function roleDemande(req) {
+  const { role } = req.query;
+  if (role === undefined) return undefined;
+  if (!authService.ROLES_INSCRIPTION.includes(role)) {
+    throw Object.assign(new Error(`Le rôle doit être l'un de : ${authService.ROLES_INSCRIPTION.join(', ')}`), {
+      status: 400,
+    });
+  }
+  return role;
+}
+
+function lireJson(req, nom) {
+  try {
+    return JSON.parse(lireCookie(req, nom) || 'null');
+  } catch {
+    return null; // cookie illisible : traité comme absent
+  }
+}
+
 function github(req, res, next) {
   try {
+    const role = roleDemande(req);
     const state = randomBytes(16).toString('hex');
     const url = githubService.urlAutorisation(state);
-    res.cookie(COOKIE_STATE, state, OPTIONS_COOKIE);
+    res.cookie(COOKIE_STATE, JSON.stringify({ state, role }), OPTIONS_COOKIE);
     res.redirect(url);
   } catch (error) {
     next(error);
@@ -63,17 +86,17 @@ function lireCookie(req, nom) {
 // Le navigateur arrive ici depuis GitHub : on le renvoie toujours vers le frontend, avec le token ou
 // l'erreur dans le fragment (#), qui n'est jamais envoyé à un serveur ni gardé dans les logs.
 async function githubCallback(req, res) {
-  const stateAttendu = lireCookie(req, COOKIE_STATE);
+  const tentative = lireJson(req, COOKIE_STATE);
   res.clearCookie(COOKIE_STATE, { path: OPTIONS_COOKIE.path });
 
   try {
-    if (!stateAttendu || req.query.state !== stateAttendu) {
+    if (!tentative?.state || req.query.state !== tentative.state) {
       throw Object.assign(new Error('Session de connexion GitHub invalide, veuillez réessayer.'), { status: 400 });
     }
     if (req.query.error) {
       throw Object.assign(new Error('Connexion GitHub annulée.'), { status: 401 });
     }
-    const token = await githubService.connexion(req.query.code);
+    const token = await githubService.connexion(req.query.code, tentative.role);
     res.redirect(`${env.frontendUrl}/connexion-externe#token=${encodeURIComponent(token)}`);
   } catch (error) {
     if (!error.status) console.error('[GitHub OAuth]:', error);
@@ -94,9 +117,14 @@ function fournisseurs(req, res) {
 
 async function oidc(req, res, next) {
   try {
+    const role = roleDemande(req);
     const tentative = oidcService.nouvelleTentative();
     const url = await oidcService.urlAutorisation(req.params.fournisseur, tentative);
-    res.cookie(COOKIE_OIDC, JSON.stringify({ ...tentative, fournisseur: req.params.fournisseur }), OPTIONS_COOKIE_OIDC);
+    res.cookie(
+      COOKIE_OIDC,
+      JSON.stringify({ ...tentative, fournisseur: req.params.fournisseur, role }),
+      OPTIONS_COOKIE_OIDC,
+    );
     res.redirect(url);
   } catch (error) {
     next(error);
@@ -104,12 +132,7 @@ async function oidc(req, res, next) {
 }
 
 async function oidcCallback(req, res) {
-  let tentative = null;
-  try {
-    tentative = JSON.parse(lireCookie(req, COOKIE_OIDC) || 'null');
-  } catch {
-    // cookie illisible : traité comme absent
-  }
+  const tentative = lireJson(req, COOKIE_OIDC);
   res.clearCookie(COOKIE_OIDC, { path: OPTIONS_COOKIE_OIDC.path });
 
   try {
