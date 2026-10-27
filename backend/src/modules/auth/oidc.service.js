@@ -98,6 +98,8 @@ async function echangerCode(nom, f, config, code, codeVerifier) {
   });
   const json = await res.json();
   if (!res.ok || !json.id_token) {
+    // Le code d'erreur du fournisseur (ex. Microsoft AADSTS7000215 = secret invalide) aide à diagnostiquer.
+    console.error(`[OIDC] échange du code refusé par ${nom} :`, json.error, '-', (json.error_description || '').split(/\r?\n/)[0]);
     throw httpError(401, `Connexion ${nom} refusée ou expirée, veuillez réessayer.`);
   }
   return json.id_token;

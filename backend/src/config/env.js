@@ -1,4 +1,8 @@
-require('dotenv/config');
+const path = require('path');
+
+// Toujours backend/.env, quel que soit le dossier d'où le serveur est lancé (`npm start` depuis backend/
+// ou `node backend/src/server.js` depuis la racine). Les variables déjà définies (Docker, CI) priment.
+require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
 
 module.exports = {
   port: process.env.PORT || 3000,
