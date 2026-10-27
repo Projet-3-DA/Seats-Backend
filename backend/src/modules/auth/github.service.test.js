@@ -157,3 +157,21 @@ describe('connexion avec un rôle choisi à l\'inscription', () => {
     expect(jwt.verify(token, 'secret-test')).toMatchObject({ userId: 3, role: 'spectateur' });
   });
 });
+
+describe('connexion avec une GitHub App sans permission « Email addresses »', () => {
+  it('continue sans courriel quand /user/emails est refusé', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    global.fetch = jest.fn(async (url) => {
+      if (url.startsWith('https://github.com/login/oauth/access_token')) return Response.json({ access_token: 'ghu_test' });
+      if (url === 'https://api.github.com/user') return Response.json(PROFIL);
+      return new Response('Resource not accessible by integration', { status: 403 });
+    });
+    prisma.utilisateur.findUnique.mockResolvedValue(null);
+    prisma.utilisateur.create.mockImplementation(async ({ data }) => ({ id: 10, ...data }));
+
+    const token = await connexion('code-123');
+
+    expect(prisma.utilisateur.create.mock.calls[0][0].data.email).toBe('42+octocat@users.noreply.github.com');
+    expect(jwt.verify(token, 'secret-test')).toMatchObject({ userId: 10, role: 'spectateur' });
+  });
+});

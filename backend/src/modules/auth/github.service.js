@@ -38,6 +38,8 @@ async function echangerCode(code) {
   const json = await res.json();
   // GitHub répond 200 même pour un code invalide ou expiré : l'erreur est dans le corps.
   if (!res.ok || !json.access_token) {
+    // Seulement le code d'erreur de GitHub (ex. bad_verification_code, incorrect_client_credentials).
+    console.error('[GitHub OAuth] échange du code refusé :', json.error, '-', json.error_description);
     throw httpError(401, 'Connexion GitHub refusée ou expirée, veuillez réessayer.');
   }
   return json.access_token;
@@ -48,14 +50,22 @@ async function appelGithub(chemin, accessToken) {
     headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${accessToken}`, 'User-Agent': 'seats' },
   });
   if (!res.ok) {
+    console.error(`[GitHub OAuth] ${chemin} refusé :`, res.status, await res.text());
     throw httpError(502, 'Impossible de lire le profil GitHub.');
   }
   return res.json();
 }
 
 // Courriel principal vérifié : seul un courriel vérifié par GitHub peut relier un compte Seats existant.
+// Une GitHub App sans la permission « Email addresses » se voit refuser /user/emails : on continue alors
+// sans courriel (le compte reçoit une adresse noreply et n'est jamais relié par courriel).
 async function courrielVerifie(accessToken) {
-  const courriels = await appelGithub('/user/emails', accessToken);
+  let courriels;
+  try {
+    courriels = await appelGithub('/user/emails', accessToken);
+  } catch {
+    return null;
+  }
   const principal = courriels.find((c) => c.primary && c.verified) || courriels.find((c) => c.verified);
   return principal ? principal.email : null;
 }

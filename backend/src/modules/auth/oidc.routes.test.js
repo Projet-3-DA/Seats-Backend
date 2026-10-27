@@ -6,7 +6,8 @@ const app = require('../../app');
 const oidcService = require('./oidc.service');
 const env = require('../../config/env');
 
-const FRONTEND = 'http://localhost:5173/connexion-externe';
+// Dépend de FRONTEND_URL (le .env local peut pointer sur Expo, port 8081).
+const FRONTEND = `${require('../../config/env').frontendUrl}/connexion-externe`;
 const TENTATIVE = { state: 's1', nonce: 'n1', codeVerifier: 'v1' };
 
 function cookieTentative(valeur) {
