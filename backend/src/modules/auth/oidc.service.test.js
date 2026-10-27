@@ -248,3 +248,25 @@ describe('connexion', () => {
     await expect(connexion('google', undefined, TENTATIVE)).rejects.toMatchObject({ status: 400 });
   });
 });
+
+describe('connexion avec un rôle choisi à l\'inscription', () => {
+  it('crée un nouveau compte avec le rôle choisi', async () => {
+    simulerFournisseur('google', { id_token: await idToken('google') });
+    prisma.identiteExterne.findUnique.mockResolvedValue(null);
+    prisma.utilisateur.create.mockImplementation(async ({ data }) => ({ id: 12, role: data.role }));
+
+    const token = await connexion('google', 'code-1', { ...TENTATIVE, role: 'organisateur' });
+
+    expect(prisma.utilisateur.create.mock.calls[0][0].data.role).toBe('organisateur');
+    expect(jwt.verify(token, 'secret-test')).toMatchObject({ userId: 12, role: 'organisateur' });
+  });
+
+  it('ne change pas le rôle d\'un compte déjà relié', async () => {
+    simulerFournisseur('google', { id_token: await idToken('google') });
+    prisma.identiteExterne.findUnique.mockResolvedValue({ utilisateur: { id: 3, role: 'spectateur' } });
+
+    const token = await connexion('google', 'code-1', { ...TENTATIVE, role: 'organisateur' });
+
+    expect(jwt.verify(token, 'secret-test')).toMatchObject({ userId: 3, role: 'spectateur' });
+  });
+});
