@@ -1,7 +1,6 @@
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const { jwtSecret } = require('./config/env');
-const evenementsService = require('./modules/evenements/evenements.service');
 
 const DELAI_SELECTION_MS = 60_000;
 
@@ -27,7 +26,14 @@ function liberer(evenementId, siegeId) {
   io?.to(salon(evenementId)).emit('siege:libere', { siegeId });
 }
 
-function init(httpServer) {
+// `verifierProprietaireEvenement` est injecté par l'appelant (server.js), pas requis directement ici :
+// realtime.js reste un module de transport pur, sans dépendance à Prisma/aux services métier. Ça le garde
+// testable (realtime.test.js) sans base de données ni client Prisma généré (CI du job `test`, --ignore-scripts).
+async function verifierProprietaireEvenementParDefaut() {
+  return null;
+}
+
+function init(httpServer, { verifierProprietaireEvenement = verifierProprietaireEvenementParDefaut } = {}) {
   io = new Server(httpServer, { cors: { origin: '*' } });
 
   // Visiteur anonyme accepté (il voit le plan bouger) ; seul un spectateur connecté peut sélectionner.
@@ -61,7 +67,7 @@ function init(httpServer) {
         return ack?.({ ok: false, error: 'Réservé aux organisateurs connectés.' });
       }
       try {
-        const organisateurId = await evenementsService.getOrganisateurId(evenementId);
+        const organisateurId = await verifierProprietaireEvenement(evenementId);
         if (organisateurId !== user.id) {
           return ack?.({ ok: false, error: "Cet événement ne vous appartient pas." });
         }

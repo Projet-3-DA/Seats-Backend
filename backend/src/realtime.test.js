@@ -1,20 +1,20 @@
-jest.mock('./modules/evenements/evenements.service');
-
 const http = require('http');
 const jwt = require('jsonwebtoken');
 const { io: connecter } = require('socket.io-client');
 const realtime = require('./realtime');
-const evenementsService = require('./modules/evenements/evenements.service');
 const { jwtSecret } = require('./config/env');
 
 let serveur;
 let ioServeur;
 let url;
 const clients = [];
+// Remplace la vraie vérification (server.js l'injecte avec evenementsService.getOrganisateurId, qui a
+// besoin de Prisma) : realtime.js n'a ainsi jamais besoin du client Prisma généré pour être testé.
+const verifierProprietaireEvenement = jest.fn();
 
 beforeAll((done) => {
   serveur = http.createServer();
-  ioServeur = realtime.init(serveur);
+  ioServeur = realtime.init(serveur, { verifierProprietaireEvenement });
   serveur.listen(0, () => {
     url = `http://localhost:${serveur.address().port}`;
     done();
@@ -79,7 +79,7 @@ describe('sélection de sièges en temps réel (#8, #31, #32)', () => {
 
 describe('diffusion des ventes en direct (#35)', () => {
   it("l'organisateur propriétaire rejoint et reçoit les ventes poussées", async () => {
-    evenementsService.getOrganisateurId.mockResolvedValue(7);
+    verifierProprietaireEvenement.mockResolvedValue(7);
     const organisateur = client(7, 'organisateur');
     await expect(emettre(organisateur, 'ventes:rejoindre', 50)).resolves.toEqual({ ok: true });
 
@@ -91,7 +91,7 @@ describe('diffusion des ventes en direct (#35)', () => {
   });
 
   it("refuse un organisateur qui n'est pas propriétaire de l'événement", async () => {
-    evenementsService.getOrganisateurId.mockResolvedValue(7);
+    verifierProprietaireEvenement.mockResolvedValue(7);
     const autreOrganisateur = client(8, 'organisateur');
 
     await expect(emettre(autreOrganisateur, 'ventes:rejoindre', 50)).resolves.toEqual({
@@ -106,7 +106,7 @@ describe('diffusion des ventes en direct (#35)', () => {
       ok: false,
       error: 'Réservé aux organisateurs connectés.',
     });
-    expect(evenementsService.getOrganisateurId).not.toHaveBeenCalled();
+    expect(verifierProprietaireEvenement).not.toHaveBeenCalled();
   });
 
   it("ne diffuse pas à un simple visiteur du plan de salle (room publique distincte)", async () => {
@@ -125,7 +125,7 @@ describe('diffusion des ventes en direct (#35)', () => {
   });
 
   it("ne diffuse pas aux organisateurs d'un autre événement", async () => {
-    evenementsService.getOrganisateurId.mockResolvedValue(7);
+    verifierProprietaireEvenement.mockResolvedValue(7);
     const organisateur = client(7, 'organisateur');
     await emettre(organisateur, 'ventes:rejoindre', 51);
 
