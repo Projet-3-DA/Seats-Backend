@@ -1,7 +1,7 @@
 # L'intégration continue du backend Seats. GitHub exécute ce fichier à chaque push.
 #
 # Jobs, chacun sur une machine neuve :
-#   test              installe le projet et lance `npm test` (Jest).
+#   test              installe le projet, lance `npm run lint` (ESLint) puis `npm test` (Jest).
 #                      Prisma est simulé (src/lib/__mocks__/prisma.js) : le vrai client généré n'est
 #                      jamais requis par les tests, donc --ignore-scripts (pas de "prisma generate")
 #                      et aucun secret nécessaire.
@@ -36,6 +36,7 @@ jobs:
           cache-dependency-path: backend/package-lock.json
 
       - run: npm ci --ignore-scripts
+      - run: npm run lint
       - run: npm test
 
   test-integration:
