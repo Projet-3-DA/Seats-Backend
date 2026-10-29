@@ -1,6 +1,18 @@
 const reservationsService = require('./reservations.service');
 const { validateReserverSieges, validateAnnulation } = require('./reservations.validation');
 const realtime = require('../../realtime');
+const evenementsService = require('../evenements/evenements.service');
+
+// Recalcule les ventes de l'événement et les pousse à qui regarde le plan ou le tableau de bord (#35).
+// Best-effort : un souci ici ne doit jamais faire échouer la réservation/l'annulation elle-même.
+async function diffuserVentesMaj(evenementId) {
+  try {
+    const evenement = await evenementsService.chargerEvenementAvecVentes(evenementId);
+    realtime.diffuserVentes(evenementId, evenementsService.calculerVentes(evenement));
+  } catch {
+    // Pas de panique : le tableau de bord se rattrapera au prochain rafraîchissement manuel.
+  }
+}
 
 async function getReservations(req, res, next) {
   try {
@@ -27,6 +39,7 @@ async function reserverSieges(req, res, next) {
       siegeIds,
     });
     realtime.diffuserReserves(evenementId, siegeIds);
+    await diffuserVentesMaj(evenementId);
     res.status(201).json({ success: true, data: reservations });
   } catch (error) {
     next(error);
@@ -48,6 +61,7 @@ async function annulerReservation(req, res, next) {
       organisateurId: req.user.id,
       motif: req.body?.motif?.trim(),
     });
+    await diffuserVentesMaj(reservation.evenementId);
     res.json({ success: true, data: reservation });
   } catch (error) {
     next(error);
@@ -69,6 +83,7 @@ async function annulerMaReservation(req, res, next) {
       spectateurId: req.user.id,
       motif: req.body?.motif?.trim(),
     });
+    await diffuserVentesMaj(reservation.evenementId);
     res.json({ success: true, data: reservation });
   } catch (error) {
     next(error);

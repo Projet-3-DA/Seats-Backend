@@ -146,11 +146,19 @@ async function getVentesEvenement(evenementId, organisateurId) {
   return calculerVentes(evenement);
 }
 
+// Vérification légère (sans charger sièges/réservations) pour autoriser l'abonnement aux ventes en
+// direct d'un événement (#35) : le socket ne doit rejoindre la diffusion que s'il en est l'organisateur.
+async function getOrganisateurId(evenementId) {
+  const evenement = await prisma.evenement.findUnique({ where: { id: evenementId }, select: { organisateurId: true } });
+  return evenement?.organisateurId ?? null;
+}
+
 module.exports = {
   getAllEvenements,
   createEvenement,
   getPlanSalle,
   getVentesEvenement,
+  getOrganisateurId,
   chargerEvenementAvecVentes,
   calculerVentes,
   uploadAffiche

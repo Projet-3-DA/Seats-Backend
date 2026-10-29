@@ -8,10 +8,13 @@ let serveur;
 let ioServeur;
 let url;
 const clients = [];
+// Remplace la vraie vérification (server.js l'injecte avec evenementsService.getOrganisateurId, qui a
+// besoin de Prisma) : realtime.js n'a ainsi jamais besoin du client Prisma généré pour être testé.
+const verifierProprietaireEvenement = jest.fn();
 
 beforeAll((done) => {
   serveur = http.createServer();
-  ioServeur = realtime.init(serveur);
+  ioServeur = realtime.init(serveur, { verifierProprietaireEvenement });
   serveur.listen(0, () => {
     url = `http://localhost:${serveur.address().port}`;
     done();
@@ -21,8 +24,8 @@ beforeAll((done) => {
 afterEach(() => clients.splice(0).forEach((c) => c.close()));
 afterAll(() => ioServeur.close());
 
-function client(userId) {
-  const c = connecter(url, { auth: { token: jwt.sign({ userId, role: 'spectateur' }, jwtSecret) } });
+function client(userId, role = 'spectateur') {
+  const c = connecter(url, { auth: { token: jwt.sign({ userId, role }, jwtSecret) } });
   clients.push(c);
   return c;
 }
@@ -71,5 +74,68 @@ describe('sélection de sièges en temps réel (#8, #31, #32)', () => {
     jest.advanceTimersByTime(realtime.DELAI_SELECTION_MS);
     jest.useRealTimers();
     expect(realtime.estSelectionneParAutre(8, [201], 2)).toBe(false);
+  });
+});
+
+describe('diffusion des ventes en direct (#35)', () => {
+  it("l'organisateur propriétaire rejoint et reçoit les ventes poussées", async () => {
+    verifierProprietaireEvenement.mockResolvedValue(7);
+    const organisateur = client(7, 'organisateur');
+    await expect(emettre(organisateur, 'ventes:rejoindre', 50)).resolves.toEqual({ ok: true });
+
+    const ventes = { totaux: { total: 10, vendus: 1, enSelection: 0, libres: 9 } };
+    const recu = attendre(organisateur, 'ventes:maj');
+    realtime.diffuserVentes(50, ventes);
+
+    await expect(recu).resolves.toEqual(ventes);
+  });
+
+  it("refuse un organisateur qui n'est pas propriétaire de l'événement", async () => {
+    verifierProprietaireEvenement.mockResolvedValue(7);
+    const autreOrganisateur = client(8, 'organisateur');
+
+    await expect(emettre(autreOrganisateur, 'ventes:rejoindre', 50)).resolves.toEqual({
+      ok: false,
+      error: "Cet événement ne vous appartient pas.",
+    });
+  });
+
+  it('refuse un spectateur', async () => {
+    const spectateur = client(1, 'spectateur');
+    await expect(emettre(spectateur, 'ventes:rejoindre', 50)).resolves.toEqual({
+      ok: false,
+      error: 'Réservé aux organisateurs connectés.',
+    });
+    expect(verifierProprietaireEvenement).not.toHaveBeenCalled();
+  });
+
+  it("ne diffuse pas à un simple visiteur du plan de salle (room publique distincte)", async () => {
+    const visiteurPlan = client(2, 'spectateur');
+    visiteurPlan.emit('plan:rejoindre', 50);
+    await attendre(visiteurPlan, 'plan:selections');
+
+    let recu = false;
+    visiteurPlan.on('ventes:maj', () => {
+      recu = true;
+    });
+    realtime.diffuserVentes(50, { totaux: {} });
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(recu).toBe(false);
+  });
+
+  it("ne diffuse pas aux organisateurs d'un autre événement", async () => {
+    verifierProprietaireEvenement.mockResolvedValue(7);
+    const organisateur = client(7, 'organisateur');
+    await emettre(organisateur, 'ventes:rejoindre', 51);
+
+    let recu = false;
+    organisateur.on('ventes:maj', () => {
+      recu = true;
+    });
+    realtime.diffuserVentes(50, { totaux: {} });
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(recu).toBe(false);
   });
 });

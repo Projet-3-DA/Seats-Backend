@@ -12,6 +12,10 @@ let io = null;
 
 const cle = (evenementId, siegeId) => `${evenementId}:${siegeId}`;
 const salon = (evenementId) => `evenement:${evenementId}`;
+// Room distincte de `salon` (#35) : `salon` est public (visiteur anonyme accepté pour voir le plan
+// bouger), alors que les ventes exposent le nom et le courriel des spectateurs ayant réservé — seul
+// l'organisateur propriétaire de l'événement peut la rejoindre (vérifié dans `ventes:rejoindre`).
+const salonVentes = (evenementId) => `ventes:${evenementId}`;
 
 function liberer(evenementId, siegeId) {
   const k = cle(evenementId, siegeId);
@@ -22,7 +26,14 @@ function liberer(evenementId, siegeId) {
   io?.to(salon(evenementId)).emit('siege:libere', { siegeId });
 }
 
-function init(httpServer) {
+// `verifierProprietaireEvenement` est injecté par l'appelant (server.js), pas requis directement ici :
+// realtime.js reste un module de transport pur, sans dépendance à Prisma/aux services métier. Ça le garde
+// testable (realtime.test.js) sans base de données ni client Prisma généré (CI du job `test`, --ignore-scripts).
+async function verifierProprietaireEvenementParDefaut() {
+  return null;
+}
+
+function init(httpServer, { verifierProprietaireEvenement = verifierProprietaireEvenementParDefaut } = {}) {
   io = new Server(httpServer, { cors: { origin: '*' } });
 
   // Visiteur anonyme accepté (il voit le plan bouger) ; seul un spectateur connecté peut sélectionner.
@@ -47,6 +58,27 @@ function init(httpServer) {
     });
 
     socket.on('plan:quitter', (evenementId) => socket.leave(salon(evenementId)));
+
+    // Abonnement aux ventes en direct (#35) : réservé à l'organisateur propriétaire de l'événement,
+    // vérifié ici (pas seulement côté client) puisqu'un socket peut émettre n'importe quel evenementId.
+    socket.on('ventes:rejoindre', async (evenementId, ack) => {
+      const user = socket.data.user;
+      if (user?.role !== 'organisateur') {
+        return ack?.({ ok: false, error: 'Réservé aux organisateurs connectés.' });
+      }
+      try {
+        const organisateurId = await verifierProprietaireEvenement(evenementId);
+        if (organisateurId !== user.id) {
+          return ack?.({ ok: false, error: "Cet événement ne vous appartient pas." });
+        }
+        socket.join(salonVentes(evenementId));
+        ack?.({ ok: true });
+      } catch {
+        ack?.({ ok: false, error: 'Erreur serveur.' });
+      }
+    });
+
+    socket.on('ventes:quitter', (evenementId) => socket.leave(salonVentes(evenementId)));
 
     socket.on('siege:selectionner', ({ evenementId, siegeId }, ack) => {
       const user = socket.data.user;
@@ -91,4 +123,11 @@ function diffuserReserves(evenementId, siegeIds) {
   io?.to(salon(evenementId)).emit('sieges:reserves', { siegeIds });
 }
 
-module.exports = { init, estSelectionneParAutre, diffuserReserves, DELAI_SELECTION_MS };
+// Tableau de bord des ventes de l'organisateur (#35) : poussé après toute réservation ou annulation sur
+// l'événement, pour remplacer le sondage toutes les 5 s par une mise à jour immédiate. Diffusé uniquement
+// dans `salonVentes` (voir plus haut) : jamais dans la room publique du plan de salle.
+function diffuserVentes(evenementId, ventes) {
+  io?.to(salonVentes(evenementId)).emit('ventes:maj', ventes);
+}
+
+module.exports = { init, estSelectionneParAutre, diffuserReserves, diffuserVentes, DELAI_SELECTION_MS };
