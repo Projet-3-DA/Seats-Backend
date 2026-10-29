@@ -16,7 +16,7 @@ function authMiddleware(req, res, next) {
     const payload = jwt.verify(token, jwtSecret);
     req.user = { id: payload.userId, role: payload.role };
     next();
-  } catch (error) {
+  } catch {
     return res.status(401).json({
       success: false,
       error: 'Accès non autorisé. Token manquant ou invalide.',
