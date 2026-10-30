@@ -11,9 +11,9 @@
 #                      mock ne peut pas simuler.
 #   image              construit l'image Docker et la publie sur ghcr.io. Ne tourne que si les deux
 #                      jobs de test ont réussi, et seulement quand on pousse le tag "latest" ou
-#                      "alpha-v1" — pas à chaque push sur main. "latest" est mobile : pour publier une
+#                      "alpha-v1" ou "beta-v1" — pas à chaque push sur main. "latest" est mobile : pour publier une
 #                      nouvelle image, `git tag -f latest && git push origin latest --force`.
-#                      "alpha-v1" est fixe, posé une seule fois pour la remise.
+#                      "alpha-v1" et "beta-v1" sont fixes, posés une seule fois par remise.
 
 name: CI
 
@@ -76,7 +76,7 @@ jobs:
 
   image:
     needs: [test, test-integration]
-    if: github.ref == 'refs/tags/latest' || github.ref == 'refs/tags/alpha-v1'
+    if: github.ref == 'refs/tags/latest' || github.ref == 'refs/tags/alpha-v1' || github.ref == 'refs/tags/beta-v1'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -89,7 +89,7 @@ jobs:
       - name: Se connecter au registre
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      # Deux tags Docker : celui du tag Git poussé (`latest` ou `alpha-v1`) et `sha-xxxxxxx`, figé sur ce commit.
+      # Deux tags Docker : celui du tag Git poussé (`latest`, `alpha-v1` ou `beta-v1`) et `sha-xxxxxxx`, figé sur ce commit.
       - name: Construire et publier l'image
         run: |
           OWNER=${GITHUB_REPOSITORY_OWNER,,}
