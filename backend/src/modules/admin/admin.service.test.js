@@ -1,7 +1,7 @@
 jest.mock('../../lib/prisma');
 
 const prisma = require('../../lib/prisma');
-const { getEvenements, getEvenement } = require('./admin.service');
+const { getEvenements, getEvenement, getOrganisateurs, getOrganisateur } = require('./admin.service');
 
 const JOUR = 86_400_000;
 
@@ -131,5 +131,83 @@ describe('getEvenement (#36)', () => {
     prisma.evenement.findUnique.mockResolvedValue(null);
 
     await expect(getEvenement(999)).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe('getOrganisateurs (#19 du backlog)', () => {
+  it('ne liste que les organisateurs, par ordre alphabétique, sans mot de passe', async () => {
+    prisma.utilisateur.findMany.mockResolvedValue([]);
+
+    await getOrganisateurs();
+
+    const args = prisma.utilisateur.findMany.mock.calls[0][0];
+    expect(args.where).toEqual({ role: 'organisateur' });
+    expect(args.orderBy).toEqual([{ nom: 'asc' }, { prenom: 'asc' }]);
+    expect(args.select.motDePasse).toBeUndefined();
+    expect(args.select._count).toEqual({ select: { evenements: true, salles: true } });
+  });
+
+  it("renvoie le nom, le courriel, le nombre d'événements et de salles de chacun", async () => {
+    const inscription = new Date('2026-09-01T00:00:00Z');
+    prisma.utilisateur.findMany.mockResolvedValue([
+      { id: 7, prenom: 'Olivia', nom: 'Organisatrice', email: 'o@test.local', createdAt: inscription, _count: { evenements: 3, salles: 1 } },
+    ]);
+
+    await expect(getOrganisateurs()).resolves.toEqual([
+      { id: 7, prenom: 'Olivia', nom: 'Organisatrice', email: 'o@test.local', createdAt: inscription, nombreEvenements: 3, nombreSalles: 1 },
+    ]);
+  });
+});
+
+describe('getOrganisateur (#19 du backlog)', () => {
+  function organisateurBrut(evenements = []) {
+    return {
+      id: 7,
+      prenom: 'Olivia',
+      nom: 'Organisatrice',
+      email: 'o@test.local',
+      createdAt: new Date('2026-09-01T00:00:00Z'),
+      _count: { evenements: evenements.length, salles: 1 },
+      salles: [{ id: 3, nom: 'Salle A', nombreRangees: 5, siegesParRangee: 8 }],
+      evenements,
+    };
+  }
+
+  const evenement = (id, decalageJours) => ({
+    id,
+    titre: `Événement ${id}`,
+    dateHeure: new Date(Date.now() + decalageJours * JOUR),
+    salle: { id: 3, nom: 'Salle A' },
+  });
+
+  it("cherche un organisateur par son id, jamais un compte d'un autre rôle", async () => {
+    prisma.utilisateur.findFirst.mockResolvedValue(organisateurBrut());
+
+    await getOrganisateur(7);
+
+    const args = prisma.utilisateur.findFirst.mock.calls[0][0];
+    expect(args.where).toEqual({ id: 7, role: 'organisateur' });
+    expect(args.select.motDePasse).toBeUndefined();
+  });
+
+  it('renvoie ses salles et ses événements, à venir d\'abord puis passés', async () => {
+    // findFirst renvoie les événements triés par date croissante.
+    prisma.utilisateur.findFirst.mockResolvedValue(
+      organisateurBrut([evenement(1, -10), evenement(2, -1), evenement(3, 1), evenement(4, 5)]),
+    );
+
+    const detail = await getOrganisateur(7);
+
+    expect(detail).toMatchObject({ id: 7, email: 'o@test.local', nombreEvenements: 4, nombreSalles: 1 });
+    expect(detail._count).toBeUndefined();
+    expect(detail.salles).toEqual([{ id: 3, nom: 'Salle A', nombreRangees: 5, siegesParRangee: 8 }]);
+    expect(detail.evenements.map((e) => e.id)).toEqual([3, 4, 2, 1]);
+    expect(detail.evenements.map((e) => e.terminee)).toEqual([false, false, true, true]);
+  });
+
+  it("refuse (404) un id qui n'est pas celui d'un organisateur", async () => {
+    prisma.utilisateur.findFirst.mockResolvedValue(null);
+
+    await expect(getOrganisateur(999)).rejects.toMatchObject({ status: 404 });
   });
 });

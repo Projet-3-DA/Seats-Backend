@@ -22,4 +22,26 @@ async function getEvenement(req, res, next) {
   }
 }
 
-module.exports = { getEvenements, getEvenement };
+async function getOrganisateurs(req, res, next) {
+  try {
+    const organisateurs = await adminService.getOrganisateurs();
+    res.json({ success: true, data: organisateurs });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function getOrganisateur(req, res, next) {
+  try {
+    const organisateurId = Number(req.params.id);
+    if (!Number.isInteger(organisateurId)) {
+      return res.status(400).json({ success: false, error: 'id invalide' });
+    }
+    const organisateur = await adminService.getOrganisateur(organisateurId);
+    res.json({ success: true, data: organisateur });
+  } catch (error) {
+    next(error);
+  }
+}
+
+module.exports = { getEvenements, getEvenement, getOrganisateurs, getOrganisateur };
