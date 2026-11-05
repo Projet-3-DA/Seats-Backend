@@ -44,4 +44,27 @@ async function getOrganisateur(req, res, next) {
   }
 }
 
-module.exports = { getEvenements, getEvenement, getOrganisateurs, getOrganisateur };
+async function getComptes(req, res, next) {
+  try {
+    const comptes = await adminService.getComptes();
+    res.json({ success: true, data: comptes });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function changerStatutCompte(req, res, next) {
+  try {
+    const compteId = Number(req.params.id);
+    if (!Number.isInteger(compteId)) {
+      return res.status(400).json({ success: false, error: 'id invalide' });
+    }
+    const { statut, raison } = req.body ?? {};
+    const compte = await adminService.changerStatutCompte(compteId, { statut, raison });
+    res.json({ success: true, data: compte });
+  } catch (error) {
+    next(error);
+  }
+}
+
+module.exports = { getEvenements, getEvenement, getOrganisateurs, getOrganisateur, getComptes, changerStatutCompte };

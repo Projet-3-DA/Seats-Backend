@@ -101,4 +101,55 @@ async function getEvenement(evenementId) {
   };
 }
 
-module.exports = { getEvenements, getEvenement, getOrganisateurs, getOrganisateur };
+const STATUTS_COMPTE = ['actif', 'suspendu'];
+const RAISON_MAX = 500;
+const CHAMPS_COMPTE = {
+  id: true,
+  prenom: true,
+  nom: true,
+  email: true,
+  role: true,
+  statut: true,
+  raisonSuspension: true,
+  suspenduLe: true,
+  createdAt: true,
+};
+
+// Comptes que l'administrateur peut suspendre (#20) : organisateurs et spectateurs, par ordre alphabétique.
+async function getComptes() {
+  return prisma.utilisateur.findMany({
+    where: { role: { in: ['organisateur', 'spectateur'] } },
+    orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
+    select: CHAMPS_COMPTE,
+  });
+}
+
+// Suspend ou réactive un compte (#20). Le compte est conservé ; la raison, optionnelle, est enregistrée
+// avec la date de suspension et effacée à la réactivation. Un compte administrateur ne peut pas être
+// suspendu.
+async function changerStatutCompte(compteId, { statut, raison } = {}) {
+  if (!STATUTS_COMPTE.includes(statut)) {
+    throw httpError(400, 'Le statut doit être « actif » ou « suspendu ».');
+  }
+  if (raison !== undefined && raison !== null && typeof raison !== 'string') {
+    throw httpError(400, 'La raison doit être un texte.');
+  }
+  const raisonNettoyee = raison ? raison.trim() : '';
+  if (raisonNettoyee.length > RAISON_MAX) {
+    throw httpError(400, `La raison ne doit pas dépasser ${RAISON_MAX} caractères.`);
+  }
+
+  const compte = await prisma.utilisateur.findUnique({ where: { id: compteId }, select: { id: true, role: true } });
+  if (!compte) throw httpError(404, 'Compte introuvable.');
+  if (compte.role === 'administrateur') {
+    throw httpError(403, 'Un compte administrateur ne peut pas être suspendu.');
+  }
+
+  const data =
+    statut === 'suspendu'
+      ? { statut, raisonSuspension: raisonNettoyee || null, suspenduLe: new Date() }
+      : { statut, raisonSuspension: null, suspenduLe: null };
+  return prisma.utilisateur.update({ where: { id: compteId }, data, select: CHAMPS_COMPTE });
+}
+
+module.exports = { getEvenements, getEvenement, getOrganisateurs, getOrganisateur, getComptes, changerStatutCompte };
