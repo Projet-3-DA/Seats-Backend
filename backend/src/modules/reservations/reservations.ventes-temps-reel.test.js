@@ -5,6 +5,7 @@
 jest.mock('../../lib/prisma');
 jest.mock('../../realtime', () => ({
   estSelectionneParAutre: jest.fn(() => false),
+  tientSelection: jest.fn(() => true),
   diffuserReserves: jest.fn(),
   diffuserVentes: jest.fn(),
 }));

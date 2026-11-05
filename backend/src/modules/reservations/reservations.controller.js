@@ -33,6 +33,9 @@ async function reserverSieges(req, res, next) {
     if (realtime.estSelectionneParAutre(evenementId, siegeIds, req.user.id)) {
       return res.status(409).json({ success: false, error: 'Un ou plusieurs sièges sont en cours de sélection par quelqu\'un d\'autre.' });
     }
+    if (!realtime.tientSelection(evenementId, siegeIds, req.user.id)) {
+      return res.status(410).json({ success: false, error: 'Le délai de sélection est écoulé : veuillez resélectionner vos sièges.' });
+    }
     const reservations = await reservationsService.reserverSieges({
       spectateurId: req.user.id,
       evenementId,
