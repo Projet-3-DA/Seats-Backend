@@ -26,6 +26,14 @@ function liberer(evenementId, siegeId) {
   io?.to(salon(evenementId)).emit('siege:libere', { siegeId });
 }
 
+// Délai écoulé (#37) : seul le détenteur est averti, pour tous les autres le siège redevient simplement libre.
+function expirer(evenementId, siegeId) {
+  const s = selections.get(cle(evenementId, siegeId));
+  if (!s) return;
+  io?.to(s.socketId).emit('selection:expiree', { siegeId });
+  liberer(evenementId, siegeId);
+}
+
 // `verifierProprietaireEvenement` est injecté par l'appelant (server.js), pas requis directement ici :
 // realtime.js reste un module de transport pur, sans dépendance à Prisma/aux services métier. Ça le garde
 // testable (realtime.test.js) sans base de données ni client Prisma généré (CI du job `test`, --ignore-scripts).
@@ -85,10 +93,11 @@ function init(httpServer, { verifierProprietaireEvenement = verifierProprietaire
       if (user?.role !== 'spectateur') return ack?.({ ok: false, error: 'Réservé aux spectateurs connectés.' });
       const k = cle(evenementId, siegeId);
       if (selections.has(k)) return ack?.({ ok: false, error: 'Ce siège est en cours de sélection par quelqu\'un d\'autre.' });
-      const timer = setTimeout(() => liberer(evenementId, siegeId), DELAI_SELECTION_MS);
+      const timer = setTimeout(() => expirer(evenementId, siegeId), DELAI_SELECTION_MS);
       selections.set(k, { userId: user.id, socketId: socket.id, timer });
       socket.to(salon(evenementId)).emit('siege:selectionne', { siegeId });
-      ack?.({ ok: true });
+      // Un délai plutôt qu'une heure : l'horloge du client n'est pas forcément à l'heure du serveur (#37).
+      ack?.({ ok: true, delaiMs: DELAI_SELECTION_MS });
     });
 
     socket.on('siege:deselectionner', ({ evenementId, siegeId }) => {
@@ -113,6 +122,12 @@ function estSelectionneParAutre(evenementId, siegeIds, userId) {
   });
 }
 
+// Une confirmation n'est valable que si le spectateur tient encore tous ses sièges : sinon le délai a
+// expiré, même si personne d'autre ne les a repris depuis (#37).
+function tientSelection(evenementId, siegeIds, userId) {
+  return siegeIds.every((id) => selections.get(cle(evenementId, id))?.userId === userId);
+}
+
 // Après une réservation confirmée : on retire les sélections et tout le monde voit les sièges passer à « réservé ».
 function diffuserReserves(evenementId, siegeIds) {
   siegeIds.forEach((id) => {
@@ -130,4 +145,4 @@ function diffuserVentes(evenementId, ventes) {
   io?.to(salonVentes(evenementId)).emit('ventes:maj', ventes);
 }
 
-module.exports = { init, estSelectionneParAutre, diffuserReserves, diffuserVentes, DELAI_SELECTION_MS };
+module.exports = { init, estSelectionneParAutre, tientSelection, diffuserReserves, diffuserVentes, DELAI_SELECTION_MS };

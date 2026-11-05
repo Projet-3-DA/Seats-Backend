@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const request = require('supertest');
 const app = require('../../app');
 const prisma = require('../../lib/prisma');
+const realtime = require('../../realtime');
 const { jwtSecret } = require('../../config/env');
 
 function jeton(payload) {
@@ -38,6 +39,13 @@ describe('GET /api/reservations', () => {
 describe('POST /api/reservations', () => {
   const corps = { evenementId: 1, siegeIds: [101, 102] };
   const evenement = { id: 1, salle: { sieges: [{ id: 101 }, { id: 102 }] } };
+
+  beforeEach(() => {
+    jest.spyOn(realtime, 'tientSelection').mockReturnValue(true);
+  });
+  afterEach(() => {
+    realtime.tientSelection.mockRestore();
+  });
 
   it('refuse sans authentification (401)', async () => {
     const res = await request(app).post('/api/reservations').send(corps);
@@ -93,6 +101,24 @@ describe('POST /api/reservations', () => {
 
     expect(res.status).toBe(409);
     expect(res.body).toEqual({ success: false, error: 'Un ou plusieurs sièges viennent d\'être pris.' });
+  });
+
+  it('refuse la confirmation si le délai de sélection a expiré, sans rien enregistrer (#37)', async () => {
+    realtime.tientSelection.mockReturnValue(false);
+    prisma.reservation.create.mockClear();
+
+    const res = await request(app)
+      .post('/api/reservations')
+      .set('Authorization', `Bearer ${jeton({ userId: 5, role: 'spectateur' })}`)
+      .send(corps);
+
+    expect(res.status).toBe(410);
+    expect(res.body).toEqual({
+      success: false,
+      error: 'Le délai de sélection est écoulé : veuillez resélectionner vos sièges.',
+    });
+    expect(realtime.tientSelection).toHaveBeenCalledWith(1, [101, 102], 5);
+    expect(prisma.reservation.create).not.toHaveBeenCalled();
   });
 });
 

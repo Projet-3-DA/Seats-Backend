@@ -41,7 +41,10 @@ describe('sélection de sièges en temps réel (#8, #31, #32)', () => {
     await Promise.all([attendre(a, 'plan:selections'), attendre(b, 'plan:selections')]);
 
     const vuParB = attendre(b, 'siege:selectionne');
-    await expect(emettre(a, 'siege:selectionner', { evenementId: 7, siegeId: 101 })).resolves.toEqual({ ok: true });
+    await expect(emettre(a, 'siege:selectionner', { evenementId: 7, siegeId: 101 })).resolves.toEqual({
+      ok: true,
+      delaiMs: realtime.DELAI_SELECTION_MS,
+    });
     await expect(vuParB).resolves.toEqual({ siegeId: 101 });
 
     expect((await emettre(b, 'siege:selectionner', { evenementId: 7, siegeId: 101 })).ok).toBe(false);
@@ -74,6 +77,32 @@ describe('sélection de sièges en temps réel (#8, #31, #32)', () => {
     jest.advanceTimersByTime(realtime.DELAI_SELECTION_MS);
     jest.useRealTimers();
     expect(realtime.estSelectionneParAutre(8, [201], 2)).toBe(false);
+  });
+
+  it("avertit seulement le détenteur quand son délai expire, et sa confirmation n'est plus valable (#37)", async () => {
+    const detenteur = client(1);
+    const autre = client(2);
+    autre.emit('plan:rejoindre', 9);
+    await Promise.all([attendre(detenteur, 'connect'), attendre(autre, 'plan:selections')]);
+    let autreAverti = false;
+    autre.on('selection:expiree', () => {
+      autreAverti = true;
+    });
+
+    jest.useFakeTimers({ advanceTimers: true });
+    await emettre(detenteur, 'siege:selectionner', { evenementId: 9, siegeId: 301 });
+    expect(realtime.tientSelection(9, [301], 1)).toBe(true);
+    expect(realtime.tientSelection(9, [301], 2)).toBe(false);
+
+    const averti = attendre(detenteur, 'selection:expiree');
+    const libere = attendre(autre, 'siege:libere');
+    jest.advanceTimersByTime(realtime.DELAI_SELECTION_MS);
+    jest.useRealTimers();
+
+    await expect(averti).resolves.toEqual({ siegeId: 301 });
+    await expect(libere).resolves.toEqual({ siegeId: 301 });
+    expect(autreAverti).toBe(false);
+    expect(realtime.tientSelection(9, [301], 1)).toBe(false);
   });
 });
 
