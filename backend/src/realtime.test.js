@@ -41,7 +41,7 @@ describe('sélection de sièges en temps réel (#8, #31, #32)', () => {
     await Promise.all([attendre(a, 'plan:selections'), attendre(b, 'plan:selections')]);
 
     const vuParB = attendre(b, 'siege:selectionne');
-    await expect(emettre(a, 'siege:selectionner', { evenementId: 7, siegeId: 101 })).resolves.toEqual({ ok: true, delaiMs: realtime.DELAI_SELECTION_MS });
+    await expect(emettre(a, 'siege:selectionner', { evenementId: 7, siegeId: 101 })).resolves.toEqual({ ok: true });
     await expect(vuParB).resolves.toEqual({ siegeId: 101 });
 
     expect((await emettre(b, 'siege:selectionner', { evenementId: 7, siegeId: 101 })).ok).toBe(false);

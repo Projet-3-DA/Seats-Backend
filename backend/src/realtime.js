@@ -88,9 +88,7 @@ function init(httpServer, { verifierProprietaireEvenement = verifierProprietaire
       const timer = setTimeout(() => liberer(evenementId, siegeId), DELAI_SELECTION_MS);
       selections.set(k, { userId: user.id, socketId: socket.id, timer });
       socket.to(salon(evenementId)).emit('siege:selectionne', { siegeId });
-      // delaiMs (#37) : le client calcule et affiche lui-même le compte à rebours à partir de là, sans
-      // dupliquer DELAI_SELECTION_MS dans son propre code.
-      ack?.({ ok: true, delaiMs: DELAI_SELECTION_MS });
+      ack?.({ ok: true });
     });
 
     socket.on('siege:deselectionner', ({ evenementId, siegeId }) => {
