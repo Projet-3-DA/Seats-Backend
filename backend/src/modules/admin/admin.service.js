@@ -43,7 +43,7 @@ function formaterOrganisateur({ _count, ...organisateur }) {
   return { ...organisateur, nombreEvenements: _count.evenements, nombreSalles: _count.salles };
 }
 
-// Liste des organisateurs inscrits (#19 du backlog) : nom, courriel et nombre d'événements de chacun,
+// Liste des organisateurs inscrits (#15) : nom, courriel et nombre d'événements de chacun,
 // par ordre alphabétique. Le mot de passe n'est jamais sélectionné.
 async function getOrganisateurs() {
   const organisateurs = await prisma.utilisateur.findMany({

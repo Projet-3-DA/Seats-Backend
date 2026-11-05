@@ -10,7 +10,7 @@ router.use(authMiddleware, roleMiddleware('administrateur'));
 // Supervision de tous les événements, quel que soit l'organisateur (#36).
 router.get('/evenements', adminController.getEvenements);
 router.get('/evenements/:id', adminController.getEvenement);
-// Liste des organisateurs inscrits et détail de chacun (#19 du backlog).
+// Liste des organisateurs inscrits et détail de chacun (#15).
 router.get('/organisateurs', adminController.getOrganisateurs);
 router.get('/organisateurs/:id', adminController.getOrganisateur);
 

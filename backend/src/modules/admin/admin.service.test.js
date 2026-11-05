@@ -134,7 +134,7 @@ describe('getEvenement (#36)', () => {
   });
 });
 
-describe('getOrganisateurs (#19 du backlog)', () => {
+describe('getOrganisateurs (#15)', () => {
   it('ne liste que les organisateurs, par ordre alphabétique, sans mot de passe', async () => {
     prisma.utilisateur.findMany.mockResolvedValue([]);
 
@@ -159,7 +159,7 @@ describe('getOrganisateurs (#19 du backlog)', () => {
   });
 });
 
-describe('getOrganisateur (#19 du backlog)', () => {
+describe('getOrganisateur (#15)', () => {
   function organisateurBrut(evenements = []) {
     return {
       id: 7,

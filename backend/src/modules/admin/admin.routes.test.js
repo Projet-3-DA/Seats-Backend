@@ -98,7 +98,7 @@ describe('GET /api/admin/evenements/:id (#36)', () => {
   });
 });
 
-describe('GET /api/admin/organisateurs (#19 du backlog)', () => {
+describe('GET /api/admin/organisateurs (#15)', () => {
   it("renvoie les organisateurs et leur nombre d'événements à l'administrateur (200)", async () => {
     prisma.utilisateur.findMany.mockResolvedValue([
       { id: 7, prenom: 'Olivia', nom: 'Organisatrice', email: 'o@test.local', createdAt: new Date(), _count: { evenements: 2, salles: 1 } },
@@ -113,7 +113,7 @@ describe('GET /api/admin/organisateurs (#19 du backlog)', () => {
   });
 });
 
-describe('GET /api/admin/organisateurs/:id (#19 du backlog)', () => {
+describe('GET /api/admin/organisateurs/:id (#15)', () => {
   it('refuse un id non numérique (400)', async () => {
     const res = await request(app).get('/api/admin/organisateurs/abc').set('Authorization', auth('administrateur'));
 
