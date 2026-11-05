@@ -1,7 +1,14 @@
 jest.mock('../../lib/prisma');
 
 const prisma = require('../../lib/prisma');
-const { getEvenements, getEvenement, getOrganisateurs, getOrganisateur } = require('./admin.service');
+const {
+  getEvenements,
+  getEvenement,
+  getOrganisateurs,
+  getOrganisateur,
+  getComptes,
+  changerStatutCompte,
+} = require('./admin.service');
 
 const JOUR = 86_400_000;
 
@@ -209,5 +216,86 @@ describe('getOrganisateur (#15)', () => {
     prisma.utilisateur.findFirst.mockResolvedValue(null);
 
     await expect(getOrganisateur(999)).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe('getComptes (#20)', () => {
+  it('liste les organisateurs et les spectateurs avec leur statut, sans mot de passe', async () => {
+    prisma.utilisateur.findMany.mockResolvedValue([]);
+
+    await getComptes();
+
+    const args = prisma.utilisateur.findMany.mock.calls[0][0];
+    expect(args.where).toEqual({ role: { in: ['organisateur', 'spectateur'] } });
+    expect(args.orderBy).toEqual([{ nom: 'asc' }, { prenom: 'asc' }]);
+    expect(args.select).toMatchObject({ statut: true, raisonSuspension: true, suspenduLe: true, role: true });
+    expect(args.select.motDePasse).toBeUndefined();
+  });
+});
+
+describe('changerStatutCompte (#20)', () => {
+  beforeEach(() => {
+    prisma.utilisateur.findUnique.mockResolvedValue({ id: 5, role: 'spectateur' });
+    prisma.utilisateur.update.mockImplementation(async ({ data }) => ({ id: 5, ...data }));
+  });
+
+  it('suspend le compte et enregistre la raison et la date, sans le supprimer', async () => {
+    const compte = await changerStatutCompte(5, { statut: 'suspendu', raison: '  Revente de billets  ' });
+
+    const { where, data } = prisma.utilisateur.update.mock.calls[0][0];
+    expect(where).toEqual({ id: 5 });
+    expect(data).toEqual({ statut: 'suspendu', raisonSuspension: 'Revente de billets', suspenduLe: expect.any(Date) });
+    expect(compte.statut).toBe('suspendu');
+  });
+
+  it('accepte une suspension sans raison', async () => {
+    await changerStatutCompte(5, { statut: 'suspendu' });
+
+    expect(prisma.utilisateur.update.mock.calls[0][0].data.raisonSuspension).toBeNull();
+  });
+
+  it('réactive le compte et efface la raison', async () => {
+    await changerStatutCompte(5, { statut: 'actif' });
+
+    expect(prisma.utilisateur.update.mock.calls[0][0].data).toEqual({
+      statut: 'actif',
+      raisonSuspension: null,
+      suspenduLe: null,
+    });
+  });
+
+  it('suspend aussi un organisateur', async () => {
+    prisma.utilisateur.findUnique.mockResolvedValue({ id: 5, role: 'organisateur' });
+
+    await expect(changerStatutCompte(5, { statut: 'suspendu' })).resolves.toMatchObject({ statut: 'suspendu' });
+  });
+
+  it.each([undefined, 'banni', ''])('refuse le statut %p (400)', async (statut) => {
+    await expect(changerStatutCompte(5, { statut })).rejects.toMatchObject({ status: 400 });
+    expect(prisma.utilisateur.update).not.toHaveBeenCalled();
+  });
+
+  it("refuse une raison qui n'est pas un texte (400)", async () => {
+    await expect(changerStatutCompte(5, { statut: 'suspendu', raison: 42 })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('refuse une raison de plus de 500 caractères (400)', async () => {
+    await expect(changerStatutCompte(5, { statut: 'suspendu', raison: 'x'.repeat(501) })).rejects.toMatchObject({
+      status: 400,
+    });
+    expect(prisma.utilisateur.update).not.toHaveBeenCalled();
+  });
+
+  it('renvoie 404 si le compte est introuvable', async () => {
+    prisma.utilisateur.findUnique.mockResolvedValue(null);
+
+    await expect(changerStatutCompte(999, { statut: 'suspendu' })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('refuse de suspendre un compte administrateur (403)', async () => {
+    prisma.utilisateur.findUnique.mockResolvedValue({ id: 1, role: 'administrateur' });
+
+    await expect(changerStatutCompte(1, { statut: 'suspendu' })).rejects.toMatchObject({ status: 403 });
+    expect(prisma.utilisateur.update).not.toHaveBeenCalled();
   });
 });

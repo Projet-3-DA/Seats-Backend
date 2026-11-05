@@ -13,5 +13,8 @@ router.get('/evenements/:id', adminController.getEvenement);
 // Liste des organisateurs inscrits et détail de chacun (#15).
 router.get('/organisateurs', adminController.getOrganisateurs);
 router.get('/organisateurs/:id', adminController.getOrganisateur);
+// Suspension et réactivation d'un compte organisateur ou spectateur (#20).
+router.get('/comptes', adminController.getComptes);
+router.patch('/comptes/:id/statut', adminController.changerStatutCompte);
 
 module.exports = router;
