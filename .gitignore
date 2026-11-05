@@ -2,3 +2,11 @@ node_modules/
 .env*.local
 /backend/.env
 backend/node_modules
+
+# Configuration locale des assistants de code
+.claude/
+.cursor/
+.devin/
+.agents/
+skills-lock.json
+AGENTS.md
