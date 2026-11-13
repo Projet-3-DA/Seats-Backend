@@ -1,6 +1,7 @@
 const prisma = require('../../lib/prisma');
 const httpError = require('../../lib/http-error');
 const { formatSection } = require('../../lib/prix');
+const { organisateurSuspendu } = require('../../lib/compte-suspendu');
 
 async function getAllSalles(organisateurId) {
   return await prisma.salle.findMany({ where: { organisateurId }, include: { sieges: true, _count: { select: { evenements: true } } } });
@@ -54,9 +55,17 @@ async function updateSalle(id, { organisateurId, nom, nombreRangees, siegesParRa
 async function getSalleById(id) {
   const salle = await prisma.salle.findUnique({
     where: { id },
-    include: { sieges: true, sections: true, _count: { select: { evenements: true } } },
+    include: {
+      sieges: true,
+      sections: true,
+      _count: { select: { evenements: true } },
+      organisateur: { select: { statut: true } },
+    },
   });
-  return salle && { ...salle, sections: salle.sections.map(formatSection) };
+  // La salle d'un organisateur suspendu est masquée comme ses événements (#41).
+  if (!salle || organisateurSuspendu(salle.organisateur)) return null;
+  const { organisateur, ...reste } = salle;
+  return { ...reste, sections: salle.sections.map(formatSection) };
 }
 
 // Remplace toutes les sections tarifaires de la salle (#11). Mêmes règles que la modification de la

@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const { createRemoteJWKSet, jwtVerify } = require('jose');
 const prisma = require('../../lib/prisma');
 const env = require('../../config/env');
+const { verifierCompteActif } = require('../../lib/compte-suspendu');
 const httpError = require('../../lib/http-error');
 
 // Connexion OpenID Connect (#114). Ajouter un fournisseur = une entrée ici + son client ID/secret.
@@ -167,6 +168,7 @@ async function connexion(nom, code, { nonce, codeVerifier, role = ROLE_PAR_DEFAU
   const idToken = await echangerCode(nom, f, config, code, codeVerifier);
   const claims = await verifierIdToken(f, config, idToken, nonce);
   const user = await trouverOuCreerUtilisateur(nom, f, claims, role);
+  verifierCompteActif(user);
 
   return jwt.sign({ userId: user.id, role: user.role }, env.jwtSecret, { expiresIn: '1h' });
 }

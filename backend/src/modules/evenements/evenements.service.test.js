@@ -114,6 +114,7 @@ describe('getPlanSalle', () => {
     expect(prisma.evenement.findUnique).toHaveBeenCalledWith({
       where: { id: 1 },
       include: {
+        organisateur: { select: { statut: true } },
         salle: { include: { sieges: { include: { section: true } }, sections: true } },
         reservations: {
           where: {
@@ -295,5 +296,37 @@ describe('prix par section (#11)', () => {
     const ventes = await getVentesEvenement(1, 7);
 
     expect(ventes.recette).toBe(40);
+  });
+});
+
+describe('visibilité des événements d\'un organisateur suspendu (#41)', () => {
+  it("la liste publique n'inclut que les événements d'organisateurs actifs", async () => {
+    prisma.evenement.findMany.mockResolvedValue([]);
+
+    await getAllEvenements();
+
+    expect(prisma.evenement.findMany.mock.calls[0][0].where.organisateur).toEqual({ statut: 'actif' });
+  });
+
+  it('le plan de salle est introuvable (null, donc 404)', async () => {
+    prisma.evenement.findUnique.mockResolvedValue({
+      id: 7,
+      organisateur: { statut: 'suspendu' },
+      salle: { id: 19, nom: 'Salle A', sieges: [], sections: [] },
+      reservations: [],
+    });
+
+    await expect(getPlanSalle(7)).resolves.toBeNull();
+  });
+
+  it("le plan reste disponible quand l'organisateur est actif", async () => {
+    prisma.evenement.findUnique.mockResolvedValue({
+      id: 7,
+      organisateur: { statut: 'actif' },
+      salle: { id: 19, nom: 'Salle A', sieges: [], sections: [] },
+      reservations: [],
+    });
+
+    await expect(getPlanSalle(7)).resolves.toMatchObject({ evenementId: 7 });
   });
 });

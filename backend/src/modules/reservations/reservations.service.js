@@ -1,6 +1,7 @@
 const prisma = require('../../lib/prisma');
 const httpError = require('../../lib/http-error');
 const { prixSiege } = require('../../lib/prix');
+const { organisateurSuspendu } = require('../../lib/compte-suspendu');
 
 async function getReservationsByUser(spectateurId) {
   const reservations = await prisma.reservation.findMany({
@@ -20,9 +21,10 @@ async function getReservationsByUser(spectateurId) {
 async function reserverSieges({ spectateurId, evenementId, siegeIds }) {
   const evenement = await prisma.evenement.findUnique({
     where: { id: evenementId },
-    include: { salle: { include: { sieges: true } } },
+    include: { salle: { include: { sieges: true } }, organisateur: { select: { statut: true } } },
   });
-  if (!evenement) throw httpError(404, 'Cet événement n\'existe pas.');
+  // Un événement d'organisateur suspendu est masqué (#41) : on ne peut plus y réserver.
+  if (!evenement || organisateurSuspendu(evenement.organisateur)) throw httpError(404, 'Cet événement n\'existe pas.');
   if (evenement.dateHeure <= new Date()) throw httpError(400, 'Cet événement est déjà passé.');
 
   const siegesDeLaSalle = new Set(evenement.salle.sieges.map((s) => s.id));

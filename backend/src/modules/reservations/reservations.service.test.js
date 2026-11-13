@@ -233,3 +233,17 @@ describe('getReservationsByUser : prix de la place (#11)', () => {
     expect(reservations.map((r) => r.prix)).toEqual([40, 25]);
   });
 });
+
+describe('réservation pour un organisateur suspendu (#41)', () => {
+  it("refuse (404) : l'événement est masqué, rien n'est réservé", async () => {
+    prisma.evenement.findUnique.mockResolvedValue({
+      id: 1,
+      dateHeure: new Date(Date.now() + 86_400_000),
+      salle: { sieges: [{ id: 101 }] },
+      organisateur: { statut: 'suspendu' },
+    });
+
+    await expect(reserverSieges({ spectateurId: 5, evenementId: 1, siegeIds: [101] })).rejects.toMatchObject({ status: 404 });
+    expect(prisma.reservation.create).not.toHaveBeenCalled();
+  });
+});
