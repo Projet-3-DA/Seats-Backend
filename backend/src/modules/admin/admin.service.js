@@ -127,6 +127,14 @@ async function getComptes() {
 // Suspend ou réactive un compte (#20). Le compte est conservé ; la raison, optionnelle, est enregistrée
 // avec la date de suspension et effacée à la réactivation. Un compte administrateur ne peut pas être
 // suspendu.
+// Les comptes de démonstration (prisma/seed.js) ont un mot de passe public et sont exigés pour la
+// correction : personne ne doit pouvoir les bloquer, sur le site en ligne notamment.
+const DOMAINE_DEMO = '@seats.demo';
+
+function estCompteDemo(email) {
+  return typeof email === 'string' && email.toLowerCase().endsWith(DOMAINE_DEMO);
+}
+
 async function changerStatutCompte(compteId, { statut, raison } = {}) {
   if (!STATUTS_COMPTE.includes(statut)) {
     throw httpError(400, 'Le statut doit être « actif » ou « suspendu ».');
@@ -139,10 +147,17 @@ async function changerStatutCompte(compteId, { statut, raison } = {}) {
     throw httpError(400, `La raison ne doit pas dépasser ${RAISON_MAX} caractères.`);
   }
 
-  const compte = await prisma.utilisateur.findUnique({ where: { id: compteId }, select: { id: true, role: true } });
+  const compte = await prisma.utilisateur.findUnique({
+    where: { id: compteId },
+    select: { id: true, role: true, email: true },
+  });
   if (!compte) throw httpError(404, 'Compte introuvable.');
   if (compte.role === 'administrateur') {
     throw httpError(403, 'Un compte administrateur ne peut pas être suspendu.');
+  }
+  // La réactivation reste permise : elle débloque un compte de démonstration suspendu avant cette règle.
+  if (statut === 'suspendu' && estCompteDemo(compte.email)) {
+    throw httpError(403, 'Un compte de démonstration ne peut pas être suspendu.');
   }
 
   const data =
@@ -152,4 +167,12 @@ async function changerStatutCompte(compteId, { statut, raison } = {}) {
   return prisma.utilisateur.update({ where: { id: compteId }, data, select: CHAMPS_COMPTE });
 }
 
-module.exports = { getEvenements, getEvenement, getOrganisateurs, getOrganisateur, getComptes, changerStatutCompte };
+module.exports = {
+  getEvenements,
+  getEvenement,
+  getOrganisateurs,
+  getOrganisateur,
+  getComptes,
+  changerStatutCompte,
+  estCompteDemo,
+};

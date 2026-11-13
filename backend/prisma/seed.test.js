@@ -25,11 +25,11 @@ describe('creerComptesDemo', () => {
     expect(roles).toEqual(new Set(['spectateur', 'organisateur', 'administrateur']));
   });
 
-  it('ne modifie pas un compte déjà existant (redémarrage sans réinitialisation)', async () => {
+  it('au redémarrage, remet seulement un compte existant à actif : mot de passe et profil inchangés', async () => {
     await creerComptesDemo();
 
     prisma.utilisateur.upsert.mock.calls.forEach(([args]) => {
-      expect(args.update).toEqual({});
+      expect(args.update).toEqual({ statut: 'actif', raisonSuspension: null, suspenduLe: null });
       expect(args.where).toEqual({ email: args.create.email });
     });
   });

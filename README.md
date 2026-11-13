@@ -113,7 +113,7 @@ Toutes les routes sont préfixées par `/api`. `GET /` renvoie un simple statut 
 | GET | `/api/admin/organisateurs` | Tous les organisateurs inscrits, avec nom, courriel, nombre d'événements et de salles (JWT requis, rôle `administrateur`) |
 | GET | `/api/admin/organisateurs/:id` | Détail d'un organisateur : ses salles et ses événements (JWT requis, rôle `administrateur`) |
 | GET | `/api/admin/comptes` | Comptes organisateurs et spectateurs, avec leur statut (`actif` ou `suspendu`) et la raison d'une suspension (JWT requis, rôle `administrateur`) |
-| PATCH | `/api/admin/comptes/:id/statut` | Suspend ou réactive un compte : `{ statut: "suspendu" \| "actif", raison? }`. Un compte administrateur ne peut pas être suspendu (JWT requis, rôle `administrateur`) |
+| PATCH | `/api/admin/comptes/:id/statut` | Suspend ou réactive un compte : `{ statut: "suspendu" \| "actif", raison? }`. Un compte administrateur ou de démonstration (`@seats.demo`) ne peut pas être suspendu (JWT requis, rôle `administrateur`) |
 
 Les routes protégées attendent l'en-tête `Authorization: Bearer <token>`. L'organisateur ou le spectateur concerné est toujours déduit du token, jamais du corps de la requête.
 

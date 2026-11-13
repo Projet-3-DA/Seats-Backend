@@ -8,7 +8,9 @@ const {
   getOrganisateur,
   getComptes,
   changerStatutCompte,
+  estCompteDemo,
 } = require('./admin.service');
+const { COMPTES_DEMO } = require('../../../prisma/seed');
 
 const JOUR = 86_400_000;
 
@@ -297,5 +299,41 @@ describe('changerStatutCompte (#20)', () => {
 
     await expect(changerStatutCompte(1, { statut: 'suspendu' })).rejects.toMatchObject({ status: 403 });
     expect(prisma.utilisateur.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('comptes de démonstration protégés', () => {
+  beforeEach(() => {
+    prisma.utilisateur.update.mockImplementation(async ({ data }) => ({ id: 5, ...data }));
+  });
+
+  it.each(['organisateur@seats.demo', 'spectateur2@seats.demo', 'Spectateur@SEATS.demo'])(
+    'refuse de suspendre %s (403), sans rien modifier',
+    async (email) => {
+      prisma.utilisateur.findUnique.mockResolvedValue({ id: 5, role: 'organisateur', email });
+
+      await expect(changerStatutCompte(5, { statut: 'suspendu' })).rejects.toMatchObject({
+        status: 403,
+        message: 'Un compte de démonstration ne peut pas être suspendu.',
+      });
+      expect(prisma.utilisateur.update).not.toHaveBeenCalled();
+    },
+  );
+
+  it('permet de réactiver un compte de démonstration déjà suspendu', async () => {
+    prisma.utilisateur.findUnique.mockResolvedValue({ id: 5, role: 'organisateur', email: 'organisateur@seats.demo' });
+
+    await expect(changerStatutCompte(5, { statut: 'actif' })).resolves.toMatchObject({ statut: 'actif' });
+  });
+
+  it('suspend toujours un compte ordinaire', async () => {
+    prisma.utilisateur.findUnique.mockResolvedValue({ id: 5, role: 'organisateur', email: 'olivia@seats.demo.com' });
+
+    await expect(changerStatutCompte(5, { statut: 'suspendu' })).resolves.toMatchObject({ statut: 'suspendu' });
+  });
+
+  it('reconnaît chacun des comptes créés par le seed', () => {
+    COMPTES_DEMO.forEach(({ email }) => expect(estCompteDemo(email)).toBe(true));
+    expect(estCompteDemo(undefined)).toBe(false);
   });
 });
