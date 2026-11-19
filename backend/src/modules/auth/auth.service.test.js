@@ -71,3 +71,29 @@ describe('login', () => {
     });
   });
 });
+
+describe('login d\'un compte suspendu (#41)', () => {
+  it('refuse (403) un compte suspendu même avec le bon mot de passe', async () => {
+    const hash = await bcrypt.hash('secret', 4);
+    prisma.utilisateur.findUnique.mockResolvedValue({ id: 1, email: 'a@b.com', motDePasse: hash, role: 'spectateur', statut: 'suspendu' });
+
+    await expect(login('a@b.com', 'secret')).rejects.toMatchObject({
+      status: 403,
+      message: expect.stringMatching(/suspendu/),
+    });
+  });
+
+  it("ne révèle pas la suspension à qui n'a pas le bon mot de passe (401 générique)", async () => {
+    const hash = await bcrypt.hash('secret', 4);
+    prisma.utilisateur.findUnique.mockResolvedValue({ id: 1, email: 'a@b.com', motDePasse: hash, role: 'spectateur', statut: 'suspendu' });
+
+    await expect(login('a@b.com', 'mauvais')).rejects.toMatchObject({ status: 401 });
+  });
+
+  it('connecte de nouveau un compte réactivé', async () => {
+    const hash = await bcrypt.hash('secret', 4);
+    prisma.utilisateur.findUnique.mockResolvedValue({ id: 1, email: 'a@b.com', motDePasse: hash, role: 'spectateur', statut: 'actif' });
+
+    await expect(login('a@b.com', 'secret')).resolves.toHaveProperty('token');
+  });
+});

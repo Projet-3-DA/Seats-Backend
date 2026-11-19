@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const prisma = require('../../lib/prisma');
 const env = require('../../config/env');
 const httpError = require('../../lib/http-error');
+const { verifierCompteActif } = require('../../lib/compte-suspendu');
 
 // Rôle donné à un compte créé par sa première connexion GitHub (voir docs/03-conception.md).
 const ROLE_PAR_DEFAUT = 'spectateur';
@@ -109,6 +110,7 @@ async function connexion(code, role = ROLE_PAR_DEFAUT) {
   const profil = await appelGithub('/user', accessToken);
   const email = await courrielVerifie(accessToken);
   const user = await trouverOuCreerUtilisateur(profil, email, role);
+  verifierCompteActif(user);
 
   return jwt.sign({ userId: user.id, role: user.role }, env.jwtSecret, { expiresIn: '1h' });
 }

@@ -1,6 +1,7 @@
 // Données de démonstration créées au démarrage du conteneur : comptes (un par rôle), salles, événements
 // et quelques réservations. Idempotent : ce qui existe déjà est laissé tel quel, donc un redémarrage ne
-// réinitialise ni les données ni les mots de passe.
+// réinitialise ni les données ni les mots de passe. Seule exception : un compte de démonstration
+// suspendu (#20) redevient actif, pour rester utilisable à la correction.
 const bcrypt = require('bcryptjs');
 const prisma = require('../src/lib/prisma');
 
@@ -34,7 +35,7 @@ async function creerComptesDemo() {
   for (const compte of COMPTES_DEMO) {
     comptes[compte.email] = await prisma.utilisateur.upsert({
       where: { email: compte.email },
-      update: {},
+      update: { statut: 'actif', raisonSuspension: null, suspenduLe: null },
       create: { ...compte, motDePasse },
     });
   }

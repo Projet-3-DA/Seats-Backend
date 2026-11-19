@@ -167,12 +167,45 @@ describe('getSalleById avec sections (#11)', () => {
     expect(salle.sections).toEqual([{ id: 10, nom: 'Balcon', prix: 30, couleur: '#f59e0b' }]);
     expect(prisma.salle.findUnique).toHaveBeenCalledWith({
       where: { id: 3 },
-      include: { sieges: true, sections: true, _count: { select: { evenements: true } } },
+      include: {
+        sieges: true,
+        sections: true,
+        _count: { select: { evenements: true } },
+        organisateur: { select: { statut: true } },
+      },
     });
   });
 
   it('renvoie null pour une salle inexistante', async () => {
     prisma.salle.findUnique.mockResolvedValue(null);
     await expect(getSalleById(999)).resolves.toBeNull();
+  });
+});
+
+describe('getSalleById, organisateur suspendu (#41)', () => {
+  it('masque la salle (null, donc 404)', async () => {
+    prisma.salle.findUnique.mockResolvedValue({
+      id: 3,
+      sieges: [],
+      sections: [],
+      _count: { evenements: 0 },
+      organisateur: { statut: 'suspendu' },
+    });
+
+    await expect(getSalleById(3)).resolves.toBeNull();
+  });
+
+  it("ne renvoie pas le statut de l'organisateur d'une salle visible", async () => {
+    prisma.salle.findUnique.mockResolvedValue({
+      id: 3,
+      sieges: [],
+      sections: [],
+      _count: { evenements: 0 },
+      organisateur: { statut: 'actif' },
+    });
+
+    const salle = await getSalleById(3);
+    expect(salle).toMatchObject({ id: 3 });
+    expect(salle.organisateur).toBeUndefined();
   });
 });

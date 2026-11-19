@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const prisma = require('../../lib/prisma');
 const { jwtSecret } = require('../../config/env');
+const { verifierCompteActif } = require('../../lib/compte-suspendu');
 
 const SALT_ROUNDS = 10;
 
@@ -51,6 +52,8 @@ async function login(email, password) {
   if (!motDePasseValide) {
     throw erreurIdentifiants;
   }
+  // Vérifié après le mot de passe : sans lui, on n'apprend pas qu'un compte existe et qu'il est suspendu.
+  verifierCompteActif(user);
 
   const token = jwt.sign({ userId: user.id, role: user.role }, jwtSecret, { expiresIn: '1h' });
 

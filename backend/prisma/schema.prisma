@@ -16,6 +16,10 @@ model Utilisateur {
     nom String
     prenom String
     role Role
+    // Suspension par un administrateur (#20) : le compte est conservé, avec la raison éventuelle.
+    statut StatutCompte @default(actif)
+    raisonSuspension String?
+    suspenduLe DateTime?
     createdAt DateTime @default(now())
 
     salles Salle[]
@@ -41,6 +45,11 @@ enum Role{
     spectateur
     organisateur
     administrateur
+}
+
+enum StatutCompte {
+    actif
+    suspendu
 }
 
 model Salle{

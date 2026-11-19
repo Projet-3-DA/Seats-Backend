@@ -119,3 +119,17 @@ describe('POST /api/auth/login', () => {
     expect(res.body.error).toMatch(/invalide/);
   });
 });
+
+describe('POST /api/auth/login, compte suspendu (#41)', () => {
+  it('refuse avec 403 et un message clair, sans jeton', async () => {
+    prisma.utilisateur.findUnique.mockResolvedValue(await utilisateurAvecMotDePasse('secret123', { statut: 'suspendu' }));
+
+    const res = await request(app).post('/api/auth/login').send({ email: 'a@exemple.com', password: 'secret123' });
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({
+      success: false,
+      error: "Ce compte est suspendu. Contactez l'administrateur de la plateforme si vous pensez qu'il s'agit d'une erreur.",
+    });
+  });
+});

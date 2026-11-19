@@ -175,3 +175,14 @@ describe('connexion avec une GitHub App sans permission « Email addresses »', 
     expect(jwt.verify(token, 'secret-test')).toMatchObject({ userId: 10, role: 'spectateur' });
   });
 });
+
+describe('connexion GitHub d\'un compte suspendu (#41)', () => {
+  it('refuse (403) sans délivrer de jeton', async () => {
+    simulerGithub();
+    prisma.utilisateur.findUnique.mockImplementation(async ({ where }) =>
+      where.githubId === '42' ? { id: 3, role: 'spectateur', statut: 'suspendu' } : null,
+    );
+
+    await expect(connexion('code-123')).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/suspendu/) });
+  });
+});

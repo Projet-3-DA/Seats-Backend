@@ -1,7 +1,16 @@
 jest.mock('../../lib/prisma');
 
 const prisma = require('../../lib/prisma');
-const { getEvenements, getEvenement } = require('./admin.service');
+const {
+  getEvenements,
+  getEvenement,
+  getOrganisateurs,
+  getOrganisateur,
+  getComptes,
+  changerStatutCompte,
+  estCompteDemo,
+} = require('./admin.service');
+const { COMPTES_DEMO } = require('../../../prisma/seed');
 
 const JOUR = 86_400_000;
 
@@ -131,5 +140,200 @@ describe('getEvenement (#36)', () => {
     prisma.evenement.findUnique.mockResolvedValue(null);
 
     await expect(getEvenement(999)).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe('getOrganisateurs (#15)', () => {
+  it('ne liste que les organisateurs, par ordre alphabétique, sans mot de passe', async () => {
+    prisma.utilisateur.findMany.mockResolvedValue([]);
+
+    await getOrganisateurs();
+
+    const args = prisma.utilisateur.findMany.mock.calls[0][0];
+    expect(args.where).toEqual({ role: 'organisateur' });
+    expect(args.orderBy).toEqual([{ nom: 'asc' }, { prenom: 'asc' }]);
+    expect(args.select.motDePasse).toBeUndefined();
+    expect(args.select._count).toEqual({ select: { evenements: true, salles: true } });
+  });
+
+  it("renvoie le nom, le courriel, le nombre d'événements et de salles de chacun", async () => {
+    const inscription = new Date('2026-09-01T00:00:00Z');
+    prisma.utilisateur.findMany.mockResolvedValue([
+      { id: 7, prenom: 'Olivia', nom: 'Organisatrice', email: 'o@test.local', createdAt: inscription, _count: { evenements: 3, salles: 1 } },
+    ]);
+
+    await expect(getOrganisateurs()).resolves.toEqual([
+      { id: 7, prenom: 'Olivia', nom: 'Organisatrice', email: 'o@test.local', createdAt: inscription, nombreEvenements: 3, nombreSalles: 1 },
+    ]);
+  });
+});
+
+describe('getOrganisateur (#15)', () => {
+  function organisateurBrut(evenements = []) {
+    return {
+      id: 7,
+      prenom: 'Olivia',
+      nom: 'Organisatrice',
+      email: 'o@test.local',
+      createdAt: new Date('2026-09-01T00:00:00Z'),
+      _count: { evenements: evenements.length, salles: 1 },
+      salles: [{ id: 3, nom: 'Salle A', nombreRangees: 5, siegesParRangee: 8 }],
+      evenements,
+    };
+  }
+
+  const evenement = (id, decalageJours) => ({
+    id,
+    titre: `Événement ${id}`,
+    dateHeure: new Date(Date.now() + decalageJours * JOUR),
+    salle: { id: 3, nom: 'Salle A' },
+  });
+
+  it("cherche un organisateur par son id, jamais un compte d'un autre rôle", async () => {
+    prisma.utilisateur.findFirst.mockResolvedValue(organisateurBrut());
+
+    await getOrganisateur(7);
+
+    const args = prisma.utilisateur.findFirst.mock.calls[0][0];
+    expect(args.where).toEqual({ id: 7, role: 'organisateur' });
+    expect(args.select.motDePasse).toBeUndefined();
+  });
+
+  it('renvoie ses salles et ses événements, à venir d\'abord puis passés', async () => {
+    // findFirst renvoie les événements triés par date croissante.
+    prisma.utilisateur.findFirst.mockResolvedValue(
+      organisateurBrut([evenement(1, -10), evenement(2, -1), evenement(3, 1), evenement(4, 5)]),
+    );
+
+    const detail = await getOrganisateur(7);
+
+    expect(detail).toMatchObject({ id: 7, email: 'o@test.local', nombreEvenements: 4, nombreSalles: 1 });
+    expect(detail._count).toBeUndefined();
+    expect(detail.salles).toEqual([{ id: 3, nom: 'Salle A', nombreRangees: 5, siegesParRangee: 8 }]);
+    expect(detail.evenements.map((e) => e.id)).toEqual([3, 4, 2, 1]);
+    expect(detail.evenements.map((e) => e.terminee)).toEqual([false, false, true, true]);
+  });
+
+  it("refuse (404) un id qui n'est pas celui d'un organisateur", async () => {
+    prisma.utilisateur.findFirst.mockResolvedValue(null);
+
+    await expect(getOrganisateur(999)).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe('getComptes (#20)', () => {
+  it('liste les organisateurs et les spectateurs avec leur statut, sans mot de passe', async () => {
+    prisma.utilisateur.findMany.mockResolvedValue([]);
+
+    await getComptes();
+
+    const args = prisma.utilisateur.findMany.mock.calls[0][0];
+    expect(args.where).toEqual({ role: { in: ['organisateur', 'spectateur'] } });
+    expect(args.orderBy).toEqual([{ nom: 'asc' }, { prenom: 'asc' }]);
+    expect(args.select).toMatchObject({ statut: true, raisonSuspension: true, suspenduLe: true, role: true });
+    expect(args.select.motDePasse).toBeUndefined();
+  });
+});
+
+describe('changerStatutCompte (#20)', () => {
+  beforeEach(() => {
+    prisma.utilisateur.findUnique.mockResolvedValue({ id: 5, role: 'spectateur' });
+    prisma.utilisateur.update.mockImplementation(async ({ data }) => ({ id: 5, ...data }));
+  });
+
+  it('suspend le compte et enregistre la raison et la date, sans le supprimer', async () => {
+    const compte = await changerStatutCompte(5, { statut: 'suspendu', raison: '  Revente de billets  ' });
+
+    const { where, data } = prisma.utilisateur.update.mock.calls[0][0];
+    expect(where).toEqual({ id: 5 });
+    expect(data).toEqual({ statut: 'suspendu', raisonSuspension: 'Revente de billets', suspenduLe: expect.any(Date) });
+    expect(compte.statut).toBe('suspendu');
+  });
+
+  it('accepte une suspension sans raison', async () => {
+    await changerStatutCompte(5, { statut: 'suspendu' });
+
+    expect(prisma.utilisateur.update.mock.calls[0][0].data.raisonSuspension).toBeNull();
+  });
+
+  it('réactive le compte et efface la raison', async () => {
+    await changerStatutCompte(5, { statut: 'actif' });
+
+    expect(prisma.utilisateur.update.mock.calls[0][0].data).toEqual({
+      statut: 'actif',
+      raisonSuspension: null,
+      suspenduLe: null,
+    });
+  });
+
+  it('suspend aussi un organisateur', async () => {
+    prisma.utilisateur.findUnique.mockResolvedValue({ id: 5, role: 'organisateur' });
+
+    await expect(changerStatutCompte(5, { statut: 'suspendu' })).resolves.toMatchObject({ statut: 'suspendu' });
+  });
+
+  it.each([undefined, 'banni', ''])('refuse le statut %p (400)', async (statut) => {
+    await expect(changerStatutCompte(5, { statut })).rejects.toMatchObject({ status: 400 });
+    expect(prisma.utilisateur.update).not.toHaveBeenCalled();
+  });
+
+  it("refuse une raison qui n'est pas un texte (400)", async () => {
+    await expect(changerStatutCompte(5, { statut: 'suspendu', raison: 42 })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('refuse une raison de plus de 500 caractères (400)', async () => {
+    await expect(changerStatutCompte(5, { statut: 'suspendu', raison: 'x'.repeat(501) })).rejects.toMatchObject({
+      status: 400,
+    });
+    expect(prisma.utilisateur.update).not.toHaveBeenCalled();
+  });
+
+  it('renvoie 404 si le compte est introuvable', async () => {
+    prisma.utilisateur.findUnique.mockResolvedValue(null);
+
+    await expect(changerStatutCompte(999, { statut: 'suspendu' })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('refuse de suspendre un compte administrateur (403)', async () => {
+    prisma.utilisateur.findUnique.mockResolvedValue({ id: 1, role: 'administrateur' });
+
+    await expect(changerStatutCompte(1, { statut: 'suspendu' })).rejects.toMatchObject({ status: 403 });
+    expect(prisma.utilisateur.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('comptes de démonstration protégés', () => {
+  beforeEach(() => {
+    prisma.utilisateur.update.mockImplementation(async ({ data }) => ({ id: 5, ...data }));
+  });
+
+  it.each(['organisateur@seats.demo', 'spectateur2@seats.demo', 'Spectateur@SEATS.demo'])(
+    'refuse de suspendre %s (403), sans rien modifier',
+    async (email) => {
+      prisma.utilisateur.findUnique.mockResolvedValue({ id: 5, role: 'organisateur', email });
+
+      await expect(changerStatutCompte(5, { statut: 'suspendu' })).rejects.toMatchObject({
+        status: 403,
+        message: 'Un compte de démonstration ne peut pas être suspendu.',
+      });
+      expect(prisma.utilisateur.update).not.toHaveBeenCalled();
+    },
+  );
+
+  it('permet de réactiver un compte de démonstration déjà suspendu', async () => {
+    prisma.utilisateur.findUnique.mockResolvedValue({ id: 5, role: 'organisateur', email: 'organisateur@seats.demo' });
+
+    await expect(changerStatutCompte(5, { statut: 'actif' })).resolves.toMatchObject({ statut: 'actif' });
+  });
+
+  it('suspend toujours un compte ordinaire', async () => {
+    prisma.utilisateur.findUnique.mockResolvedValue({ id: 5, role: 'organisateur', email: 'olivia@seats.demo.com' });
+
+    await expect(changerStatutCompte(5, { statut: 'suspendu' })).resolves.toMatchObject({ statut: 'suspendu' });
+  });
+
+  it('reconnaît chacun des comptes créés par le seed', () => {
+    COMPTES_DEMO.forEach(({ email }) => expect(estCompteDemo(email)).toBe(true));
+    expect(estCompteDemo(undefined)).toBe(false);
   });
 });

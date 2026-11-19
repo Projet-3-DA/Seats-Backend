@@ -270,3 +270,15 @@ describe('connexion avec un rôle choisi à l\'inscription', () => {
     expect(jwt.verify(token, 'secret-test')).toMatchObject({ userId: 3, role: 'spectateur' });
   });
 });
+
+describe('connexion Google ou Microsoft d\'un compte suspendu (#41)', () => {
+  it('refuse (403) sans délivrer de jeton', async () => {
+    simulerFournisseur('google', { id_token: await idToken('google') });
+    prisma.identiteExterne.findUnique.mockResolvedValue({ utilisateur: { id: 3, role: 'spectateur', statut: 'suspendu' } });
+
+    await expect(connexion('google', 'code-1', TENTATIVE)).rejects.toMatchObject({
+      status: 403,
+      message: expect.stringMatching(/suspendu/),
+    });
+  });
+});

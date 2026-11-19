@@ -2,11 +2,13 @@ const prisma = require('../../lib/prisma');
 const httpError = require('../../lib/http-error');
 const storage = require('../../lib/storage');
 const { prixSiege, formatSection } = require('../../lib/prix');
+const { organisateurSuspendu } = require('../../lib/compte-suspendu');
 
-// Seuls les événements à venir sont proposés, du plus proche au plus lointain (#82).
+// Seuls les événements à venir sont proposés, du plus proche au plus lointain (#82), et pas ceux d'un
+// organisateur suspendu (#41).
 async function getAllEvenements() {
   return await prisma.evenement.findMany({
-    where: { dateHeure: { gt: new Date() } },
+    where: { dateHeure: { gt: new Date() }, organisateur: { statut: 'actif' } },
     orderBy: { dateHeure: 'asc' },
     include: { salle: true },
   });
@@ -34,6 +36,7 @@ async function getPlanSalle(evenementId) {
   const evenement = await prisma.evenement.findUnique({
     where: { id: evenementId },
     include: {
+      organisateur: { select: { statut: true } },
       salle: { include: { sieges: { include: { section: true } }, sections: true } },
      reservations: {
   // Un siège est indisponible s'il est confirmé, ou en sélection avec un délai non expiré (#6, #30).
@@ -48,7 +51,8 @@ async function getPlanSalle(evenementId) {
     },
   });
 
-  if (!evenement) return null;
+  // Un événement d'organisateur suspendu est traité comme introuvable (#41).
+  if (!evenement || organisateurSuspendu(evenement.organisateur)) return null;
 
   const siegesReserves = new Set(evenement.reservations.map((r) => r.siegeId));
 

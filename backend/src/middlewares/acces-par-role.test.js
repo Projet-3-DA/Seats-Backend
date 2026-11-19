@@ -19,6 +19,10 @@ const ROUTES_PROTEGEES = [
   { methode: 'post', chemin: '/api/evenements/affiche', autorises: ['organisateur'] },
   { methode: 'get', chemin: '/api/reservations', autorises: ['spectateur'] },
   { methode: 'post', chemin: '/api/reservations', autorises: ['spectateur'] },
+  { methode: 'get', chemin: '/api/admin/organisateurs', autorises: ['administrateur'] },
+  { methode: 'get', chemin: '/api/admin/organisateurs/1', autorises: ['administrateur'] },
+  { methode: 'get', chemin: '/api/admin/comptes', autorises: ['administrateur'] },
+  { methode: 'patch', chemin: '/api/admin/comptes/1/statut', autorises: ['administrateur'] },
 ];
 
 const CAS_INTERDITS = ROUTES_PROTEGEES.flatMap((route) =>
