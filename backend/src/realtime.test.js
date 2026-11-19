@@ -41,7 +41,7 @@ describe('sélection de sièges en temps réel (#8, #31, #32)', () => {
     await Promise.all([attendre(a, 'plan:selections'), attendre(b, 'plan:selections')]);
 
     const vuParB = attendre(b, 'siege:selectionne');
-    await expect(emettre(a, 'siege:selectionner', { evenementId: 7, siegeId: 101 })).resolves.toEqual({ ok: true });
+    await expect(emettre(a, 'siege:selectionner', { evenementId: 7, siegeId: 101 })).resolves.toEqual({ ok: true, delaiMs: realtime.DELAI_SELECTION_MS });
     await expect(vuParB).resolves.toEqual({ siegeId: 101 });
 
     expect((await emettre(b, 'siege:selectionner', { evenementId: 7, siegeId: 101 })).ok).toBe(false);
@@ -74,6 +74,48 @@ describe('sélection de sièges en temps réel (#8, #31, #32)', () => {
     jest.advanceTimersByTime(realtime.DELAI_SELECTION_MS);
     jest.useRealTimers();
     expect(realtime.estSelectionneParAutre(8, [201], 2)).toBe(false);
+  });
+
+  it("un nouveau siège repousse l'échéance de toute la sélection, qui expire ensuite d'un coup (#37)", async () => {
+    const a = client(1);
+    await attendre(a, 'connect');
+    a.emit('plan:rejoindre', 9);
+    await attendre(a, 'plan:selections');
+    jest.useFakeTimers({ advanceTimers: true });
+
+    await emettre(a, 'siege:selectionner', { evenementId: 9, siegeId: 301 });
+    jest.advanceTimersByTime(30_000);
+    // 301 est tenu depuis 30 s quand 302 est sélectionné : son échéance doit être repoussée avec celle de 302.
+    await emettre(a, 'siege:selectionner', { evenementId: 9, siegeId: 302 });
+
+    jest.advanceTimersByTime(40_000); // 70 s depuis 301, mais seulement 40 s depuis le reset : pas encore expiré
+    expect(realtime.estSelectionneParAutre(9, [301, 302], 2)).toBe(true);
+
+    const libere = attendre(a, 'sieges:liberes');
+    jest.advanceTimersByTime(20_000); // 60 s depuis le reset commun : les deux expirent ensemble
+    jest.useRealTimers();
+    await expect(libere).resolves.toEqual({ siegeIds: [301, 302] });
+    expect(realtime.estSelectionneParAutre(9, [301, 302], 2)).toBe(false);
+  });
+
+  it("désélectionner un siège manuellement ne coupe pas l'échéance des autres sièges tenus (#37)", async () => {
+    const a = client(1);
+    await attendre(a, 'connect');
+    a.emit('plan:rejoindre', 11);
+    await attendre(a, 'plan:selections');
+    jest.useFakeTimers({ advanceTimers: true });
+
+    await emettre(a, 'siege:selectionner', { evenementId: 11, siegeId: 501 });
+    await emettre(a, 'siege:selectionner', { evenementId: 11, siegeId: 502 });
+
+    const confirmeLibere = attendre(a, 'siege:libere');
+    a.emit('siege:deselectionner', { evenementId: 11, siegeId: 501 });
+    await expect(confirmeLibere).resolves.toEqual({ siegeId: 501 });
+    expect(realtime.estSelectionneParAutre(11, [502], 2)).toBe(true);
+
+    jest.advanceTimersByTime(realtime.DELAI_SELECTION_MS);
+    jest.useRealTimers();
+    expect(realtime.estSelectionneParAutre(11, [502], 2)).toBe(false);
   });
 });
 
