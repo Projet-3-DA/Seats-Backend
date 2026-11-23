@@ -117,6 +117,68 @@ describe('sélection de sièges en temps réel (#8, #31, #32)', () => {
     jest.useRealTimers();
     expect(realtime.estSelectionneParAutre(11, [502], 2)).toBe(false);
   });
+
+  it("un minuteur orphelin (sélection vidée) ne libère pas une nouvelle sélection faite entretemps (#162)", async () => {
+    const a = client(1);
+    await attendre(a, 'connect');
+    a.emit('plan:rejoindre', 12);
+    await attendre(a, 'plan:selections');
+    jest.useFakeTimers({ advanceTimers: true });
+
+    await emettre(a, 'siege:selectionner', { evenementId: 12, siegeId: 601 });
+    await emettre(a, 'siege:selectionner', { evenementId: 12, siegeId: 602 });
+    // Toute la sélection est désélectionnée : plus rien dans `selections`, mais le minuteur partagé,
+    // jamais annulé (voir `liberer`), reste programmé pour la même échéance.
+    const libere601 = attendre(a, 'siege:libere');
+    a.emit('siege:deselectionner', { evenementId: 12, siegeId: 601 });
+    await expect(libere601).resolves.toEqual({ siegeId: 601 });
+    const libere602 = attendre(a, 'siege:libere');
+    a.emit('siege:deselectionner', { evenementId: 12, siegeId: 602 });
+    await expect(libere602).resolves.toEqual({ siegeId: 602 });
+
+    jest.advanceTimersByTime(40_000);
+    // Nouvelle sélection avant l'échéance orpheline : son propre minuteur (à +60 s d'ici) ne doit pas
+    // être court-circuité par l'ancien, qui arrive dans 20 s.
+    await emettre(a, 'siege:selectionner', { evenementId: 12, siegeId: 603 });
+
+    jest.advanceTimersByTime(20_000); // 60 s depuis 601/602 : l'ancien minuteur orphelin se déclenche
+    expect(realtime.estSelectionneParAutre(12, [603], 2)).toBe(true);
+
+    jest.advanceTimersByTime(40_000); // 60 s depuis 603 : son propre minuteur se déclenche
+    jest.useRealTimers();
+    expect(realtime.estSelectionneParAutre(12, [603], 2)).toBe(false);
+  });
+
+  it("une reconnexion laisse aussi un minuteur orphelin, qui ne doit pas libérer la sélection faite depuis la nouvelle connexion (#162)", async () => {
+    const a = client(1);
+    await attendre(a, 'connect');
+    a.emit('plan:rejoindre', 13);
+    await attendre(a, 'plan:selections');
+    jest.useFakeTimers({ advanceTimers: true });
+
+    await emettre(a, 'siege:selectionner', { evenementId: 13, siegeId: 701 });
+
+    const b = client(1);
+    await attendre(b, 'connect');
+    b.emit('plan:rejoindre', 13);
+    await attendre(b, 'plan:selections');
+
+    // La déconnexion libère aussi via `liberer` (sans clearTimeout) : même minuteur orphelin que la
+    // désélection manuelle. `b` voit la diffusion, ce qui confirme que le serveur l'a bien traitée.
+    const vuParB = attendre(b, 'siege:libere');
+    a.close();
+    await expect(vuParB).resolves.toEqual({ siegeId: 701 });
+
+    jest.advanceTimersByTime(40_000);
+    await emettre(b, 'siege:selectionner', { evenementId: 13, siegeId: 702 });
+
+    jest.advanceTimersByTime(20_000); // 60 s depuis 701 : l'ancien minuteur orphelin se déclenche
+    expect(realtime.estSelectionneParAutre(13, [702], 2)).toBe(true);
+
+    jest.advanceTimersByTime(40_000); // 60 s depuis 702 : son propre minuteur se déclenche
+    jest.useRealTimers();
+    expect(realtime.estSelectionneParAutre(13, [702], 2)).toBe(false);
+  });
 });
 
 describe('diffusion des ventes en direct (#35)', () => {

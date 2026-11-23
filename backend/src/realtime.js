@@ -37,9 +37,13 @@ function siegesUtilisateur(evenementId, userId) {
 }
 
 // Déclenché par le minuteur partagé : libère d'un coup tout ce que ce spectateur tient encore sur cet
-// événement (ceux déjà désélectionnés manuellement entre-temps ne sont plus dans `selections`).
-function libererSelectionUtilisateur(evenementId, userId) {
-  const siegeIds = siegesUtilisateur(evenementId, userId);
+// événement. On ne garde que les sièges encore attachés à CE minuteur précis (`s.timer === timer`) :
+// sans ça, un spectateur qui désélectionne tout puis resélectionne avant l'échéance orpheline se ferait
+// couper sa nouvelle sélection par l'ancien minuteur, qui n'a pas été annulé (voir `liberer`).
+function libererSelectionUtilisateur(evenementId, userId, timer) {
+  const siegeIds = siegesUtilisateur(evenementId, userId).filter(
+    (siegeId) => selections.get(cle(evenementId, siegeId))?.timer === timer,
+  );
   if (siegeIds.length === 0) return;
   siegeIds.forEach((id) => selections.delete(cle(evenementId, id)));
   io?.to(salon(evenementId)).emit('sieges:liberes', { siegeIds });
@@ -109,7 +113,7 @@ function init(httpServer, { verifierProprietaireEvenement = verifierProprietaire
       // DELAI_SELECTION_MS pour TOUS ses sièges déjà tenus sur cet événement, pas seulement le nouveau,
       // pour qu'ils expirent tous ensemble plutôt qu'un par un.
       const siegeIds = siegesUtilisateur(evenementId, user.id);
-      const timer = setTimeout(() => libererSelectionUtilisateur(evenementId, user.id), DELAI_SELECTION_MS);
+      const timer = setTimeout(() => libererSelectionUtilisateur(evenementId, user.id, timer), DELAI_SELECTION_MS);
       siegeIds.forEach((id) => {
         clearTimeout(selections.get(cle(evenementId, id)).timer);
         selections.get(cle(evenementId, id)).timer = timer;
