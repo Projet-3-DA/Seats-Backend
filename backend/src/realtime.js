@@ -45,7 +45,8 @@ function liberer(evenementId, siegeId) {
   const k = cle(evenementId, siegeId);
   const s = selections.get(k);
   if (!s) return;
-  clearTimeout(s.timer);
+  // Pas de clearTimeout ici : le minuteur est partagé avec le reste de la sélection du spectateur
+  // (#37, voir siege:selectionner) et doit continuer à courir pour ces autres sièges.
   selections.delete(k);
   io?.to(salon(evenementId)).emit('siege:libere', { siegeId });
   oublierPlafondSiVide(evenementId, s.userId);
@@ -57,10 +58,32 @@ function atteindrePlafond(evenementId, userId) {
   plafonds.delete(clePlafond(evenementId, userId));
   const tenus = selectionsDe(evenementId, userId);
   const siegeIds = tenus.map((t) => t.siegeId);
+  // `liberer` ne coupe plus le minuteur partagé des 60 s (#37) : on l'arrête ici, sinon il resterait armé
+  // et libérerait trop tôt un siège que le spectateur reprendrait juste après le plafond.
+  siegeIds.forEach((siegeId) => clearTimeout(selections.get(cle(evenementId, siegeId)).timer));
   new Set(tenus.map((t) => t.socketId)).forEach((socketId) => {
     io?.to(socketId).emit('selection:plafond', { evenementId, siegeIds });
   });
   siegeIds.forEach((siegeId) => liberer(evenementId, siegeId));
+}
+
+// Tous les sièges qu'un spectateur tient encore sur un événement (#37) : la sélection expire comme un
+// tout, pas siège par siège, donc on a besoin de la lister pour repousser/déclencher son échéance.
+function siegesUtilisateur(evenementId, userId) {
+  const prefixe = `${evenementId}:`;
+  return [...selections]
+    .filter(([k, s]) => k.startsWith(prefixe) && s.userId === userId)
+    .map(([k]) => Number(k.slice(prefixe.length)));
+}
+
+// Déclenché par le minuteur partagé : libère d'un coup tout ce que ce spectateur tient encore sur cet
+// événement (ceux déjà désélectionnés manuellement entre-temps ne sont plus dans `selections`).
+function libererSelectionUtilisateur(evenementId, userId) {
+  const siegeIds = siegesUtilisateur(evenementId, userId);
+  if (siegeIds.length === 0) return;
+  siegeIds.forEach((id) => selections.delete(cle(evenementId, id)));
+  io?.to(salon(evenementId)).emit('sieges:liberes', { siegeIds });
+  oublierPlafondSiVide(evenementId, userId);
 }
 
 // `verifierProprietaireEvenement` est injecté par l'appelant (server.js), pas requis directement ici :
@@ -128,14 +151,24 @@ function init(
       if (user?.role !== 'spectateur') return ack?.({ ok: false, error: 'Réservé aux spectateurs connectés.' });
       const k = cle(evenementId, siegeId);
       if (selections.has(k)) return ack?.({ ok: false, error: 'Ce siège est en cours de sélection par quelqu\'un d\'autre.' });
-      const timer = setTimeout(() => liberer(evenementId, siegeId), DELAI_SELECTION_MS);
-      selections.set(k, { userId: user.id, socketId: socket.id, timer });
+      selections.set(k, { userId: user.id, socketId: socket.id, timer: null });
+      // Échéance commune à toute la sélection du spectateur (#37) : un nouveau siège la repousse de
+      // DELAI_SELECTION_MS pour TOUS ses sièges déjà tenus sur cet événement, pas seulement le nouveau,
+      // pour qu'ils expirent tous ensemble plutôt qu'un par un.
+      const siegeIds = siegesUtilisateur(evenementId, user.id);
+      const timer = setTimeout(() => libererSelectionUtilisateur(evenementId, user.id), DELAI_SELECTION_MS);
+      siegeIds.forEach((id) => {
+        clearTimeout(selections.get(cle(evenementId, id)).timer);
+        selections.get(cle(evenementId, id)).timer = timer;
+      });
       const kp = clePlafond(evenementId, user.id);
       if (!plafonds.has(kp)) {
         plafonds.set(kp, setTimeout(() => atteindrePlafond(evenementId, user.id), plafondSelectionMs));
       }
       socket.to(salon(evenementId)).emit('siege:selectionne', { siegeId });
-      ack?.({ ok: true });
+      // delaiMs (#37) : le client calcule et affiche lui-même le compte à rebours à partir de là, sans
+      // dupliquer DELAI_SELECTION_MS dans son propre code.
+      ack?.({ ok: true, delaiMs: DELAI_SELECTION_MS });
     });
 
     socket.on('siege:deselectionner', ({ evenementId, siegeId }) => {

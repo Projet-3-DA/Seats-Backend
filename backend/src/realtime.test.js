@@ -41,7 +41,7 @@ describe('sélection de sièges en temps réel (#8, #31, #32)', () => {
     await Promise.all([attendre(a, 'plan:selections'), attendre(b, 'plan:selections')]);
 
     const vuParB = attendre(b, 'siege:selectionne');
-    await expect(emettre(a, 'siege:selectionner', { evenementId: 7, siegeId: 101 })).resolves.toEqual({ ok: true });
+    await expect(emettre(a, 'siege:selectionner', { evenementId: 7, siegeId: 101 })).resolves.toEqual({ ok: true, delaiMs: realtime.DELAI_SELECTION_MS });
     await expect(vuParB).resolves.toEqual({ siegeId: 101 });
 
     expect((await emettre(b, 'siege:selectionner', { evenementId: 7, siegeId: 101 })).ok).toBe(false);
@@ -74,6 +74,48 @@ describe('sélection de sièges en temps réel (#8, #31, #32)', () => {
     jest.advanceTimersByTime(realtime.DELAI_SELECTION_MS);
     jest.useRealTimers();
     expect(realtime.estSelectionneParAutre(8, [201], 2)).toBe(false);
+  });
+
+  it("un nouveau siège repousse l'échéance de toute la sélection, qui expire ensuite d'un coup (#37)", async () => {
+    const a = client(1);
+    await attendre(a, 'connect');
+    a.emit('plan:rejoindre', 9);
+    await attendre(a, 'plan:selections');
+    jest.useFakeTimers({ advanceTimers: true });
+
+    await emettre(a, 'siege:selectionner', { evenementId: 9, siegeId: 301 });
+    jest.advanceTimersByTime(30_000);
+    // 301 est tenu depuis 30 s quand 302 est sélectionné : son échéance doit être repoussée avec celle de 302.
+    await emettre(a, 'siege:selectionner', { evenementId: 9, siegeId: 302 });
+
+    jest.advanceTimersByTime(40_000); // 70 s depuis 301, mais seulement 40 s depuis le reset : pas encore expiré
+    expect(realtime.estSelectionneParAutre(9, [301, 302], 2)).toBe(true);
+
+    const libere = attendre(a, 'sieges:liberes');
+    jest.advanceTimersByTime(20_000); // 60 s depuis le reset commun : les deux expirent ensemble
+    jest.useRealTimers();
+    await expect(libere).resolves.toEqual({ siegeIds: [301, 302] });
+    expect(realtime.estSelectionneParAutre(9, [301, 302], 2)).toBe(false);
+  });
+
+  it("désélectionner un siège manuellement ne coupe pas l'échéance des autres sièges tenus (#37)", async () => {
+    const a = client(1);
+    await attendre(a, 'connect');
+    a.emit('plan:rejoindre', 11);
+    await attendre(a, 'plan:selections');
+    jest.useFakeTimers({ advanceTimers: true });
+
+    await emettre(a, 'siege:selectionner', { evenementId: 11, siegeId: 501 });
+    await emettre(a, 'siege:selectionner', { evenementId: 11, siegeId: 502 });
+
+    const confirmeLibere = attendre(a, 'siege:libere');
+    a.emit('siege:deselectionner', { evenementId: 11, siegeId: 501 });
+    await expect(confirmeLibere).resolves.toEqual({ siegeId: 501 });
+    expect(realtime.estSelectionneParAutre(11, [502], 2)).toBe(true);
+
+    jest.advanceTimersByTime(realtime.DELAI_SELECTION_MS);
+    jest.useRealTimers();
+    expect(realtime.estSelectionneParAutre(11, [502], 2)).toBe(false);
   });
 });
 
@@ -184,6 +226,80 @@ describe('plafond global de la sélection (#163)', () => {
 
     expect(plafondRecu).toBe(false);
     expect(rt.estSelectionneParAutre(33, [332], 2)).toBe(true);
+  });
+});
+
+describe('plafond (#163) et échéance commune des 60 s (#37) ensemble', () => {
+  // Plafond de 90 s, plus long que le délai de 60 s, avec de faux minuteurs (comme les tests #37 plus haut).
+  const PLAFOND_MS = 90_000;
+  let rt;
+  let serveurMixte;
+  let ioMixte;
+  let urlMixte;
+
+  beforeAll((done) => {
+    jest.isolateModules(() => {
+      rt = require('./realtime');
+    });
+    serveurMixte = http.createServer();
+    ioMixte = rt.init(serveurMixte, { plafondMs: PLAFOND_MS });
+    // Battement de cœur repoussé à 10 min sur ce serveur de test : en avançant les faux minuteurs de plus
+    // de 60 s, le ping de Socket.IO et son délai de réponse tomberaient d'un coup et couperaient le client.
+    ioMixte.engine.opts.pingInterval = 10 * 60_000;
+    ioMixte.engine.opts.pingTimeout = 10 * 60_000;
+    serveurMixte.listen(0, () => {
+      urlMixte = `http://localhost:${serveurMixte.address().port}`;
+      done();
+    });
+  });
+  afterAll(() => ioMixte.close());
+
+  async function spectateurSurPlan(userId, evenementId) {
+    const c = connecter(urlMixte, { auth: { token: jwt.sign({ userId, role: 'spectateur' }, jwtSecret) } });
+    clients.push(c);
+    c.emit('plan:rejoindre', evenementId);
+    await attendre(c, 'plan:selections');
+    return c;
+  }
+  const selectionner = (c, evenementId, siegeId) => emettre(c, 'siege:selectionner', { evenementId, siegeId });
+
+  it("après le plafond, l'ancienne échéance des 60 s ne libère pas un siège repris entre-temps", async () => {
+    const a = await spectateurSurPlan(1, 40);
+    jest.useFakeTimers({ advanceTimers: true });
+
+    await selectionner(a, 40, 401);
+    jest.advanceTimersByTime(50_000);
+    await selectionner(a, 40, 402); // échéance commune repoussée à 110 s
+    const plafond = attendre(a, 'selection:plafond');
+    jest.advanceTimersByTime(40_000); // 90 s : plafond atteint
+    await plafond;
+
+    jest.advanceTimersByTime(5_000);
+    await selectionner(a, 40, 401); // 95 s : nouvelle sélection, échéance à 155 s
+    jest.advanceTimersByTime(20_000); // 115 s : l'ancienne échéance (110 s) est passée
+    jest.useRealTimers();
+    expect(rt.estSelectionneParAutre(40, [401], 2)).toBe(true);
+  });
+
+  it('le plafond repart de zéro quand toute la sélection expire après 60 s', async () => {
+    const a = await spectateurSurPlan(1, 41);
+    let plafondRecu = false;
+    a.on('selection:plafond', () => {
+      plafondRecu = true;
+    });
+    jest.useFakeTimers({ advanceTimers: true });
+
+    await selectionner(a, 41, 411);
+    const expire = attendre(a, 'sieges:liberes');
+    jest.advanceTimersByTime(realtime.DELAI_SELECTION_MS);
+    await expire;
+
+    jest.advanceTimersByTime(10_000);
+    await selectionner(a, 41, 412); // 70 s : nouveau plafond, qui part d'ici
+    jest.advanceTimersByTime(25_000); // 95 s : l'ancien plafond (90 s) aurait déjà tout libéré
+    jest.useRealTimers();
+    expect(plafondRecu).toBe(false);
+    expect(rt.estSelectionneParAutre(41, [412], 2)).toBe(true);
   });
 });
 
