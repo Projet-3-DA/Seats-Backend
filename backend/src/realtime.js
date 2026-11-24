@@ -148,11 +148,10 @@ function estSelectionneParAutre(evenementId, siegeIds, userId) {
 
 // Après une réservation confirmée : on retire les sélections et tout le monde voit les sièges passer à « réservé ».
 function diffuserReserves(evenementId, siegeIds) {
-  siegeIds.forEach((id) => {
-    const s = selections.get(cle(evenementId, id));
-    if (s) clearTimeout(s.timer);
-    selections.delete(cle(evenementId, id));
-  });
+  // Pas de clearTimeout ici non plus (#162) : le minuteur est partagé avec le reste de la sélection du
+  // spectateur, qui peut inclure un siège tenu depuis un autre onglet/appareil et pas encore réservé.
+  // Le filtre s.timer === timer de libererSelectionUtilisateur rend un vieux minuteur sans effet.
+  siegeIds.forEach((id) => selections.delete(cle(evenementId, id)));
   io?.to(salon(evenementId)).emit('sieges:reserves', { siegeIds });
 }
 

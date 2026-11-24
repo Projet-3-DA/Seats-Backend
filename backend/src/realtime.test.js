@@ -179,6 +179,30 @@ describe('sélection de sièges en temps réel (#8, #31, #32)', () => {
     jest.useRealTimers();
     expect(realtime.estSelectionneParAutre(13, [702], 2)).toBe(false);
   });
+
+  it("réserver un siège ne coupe plus le minuteur partagé des autres sièges du même spectateur (#162)", async () => {
+    // Même spectateur, deux onglets : deux sockets, un seul userId.
+    const a = client(1);
+    const b = client(1);
+    await Promise.all([attendre(a, 'connect'), attendre(b, 'connect')]);
+    a.emit('plan:rejoindre', 14);
+    b.emit('plan:rejoindre', 14);
+    await Promise.all([attendre(a, 'plan:selections'), attendre(b, 'plan:selections')]);
+    jest.useFakeTimers({ advanceTimers: true });
+
+    await emettre(a, 'siege:selectionner', { evenementId: 14, siegeId: 601 });
+    jest.advanceTimersByTime(20_000);
+    await emettre(b, 'siege:selectionner', { evenementId: 14, siegeId: 602 }); // repousse le minuteur partagé
+
+    // Le 601 est réservé (confirmation REST, hors socket) : son entrée disparaît de `selections`, mais
+    // le minuteur partagé du spectateur ne doit pas être coupé pour autant (#162, suite du minuteur orphelin).
+    realtime.diffuserReserves(14, [601]);
+    expect(realtime.estSelectionneParAutre(14, [602], 2)).toBe(true);
+
+    jest.advanceTimersByTime(60_000); // 60 s depuis la sélection de 602 : son échéance (repoussée) arrive
+    jest.useRealTimers();
+    expect(realtime.estSelectionneParAutre(14, [602], 2)).toBe(false);
+  });
 });
 
 describe('diffusion des ventes en direct (#35)', () => {
