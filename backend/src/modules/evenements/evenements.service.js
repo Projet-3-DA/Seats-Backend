@@ -137,8 +137,40 @@ function calculerVentes(evenement) {
       ? null
       : sieges.filter((s) => s.etat === 'vendu').reduce((total, s) => total + (s.prix ?? 0), 0),
     sections: evenement.salle.sections.map(formatSection),
+    parSection: statistiquesParSection(sieges, evenement.salle.sections, tarif),
     sieges,
   };
+}
+
+// Arrondi au cent : additionner des prix comme 19.99 donne sinon 59.970000000000006.
+const arrondirAuCent = (montant) => Math.round(montant * 100) / 100;
+
+// Statistiques de vente par section tarifaire (#22). Seules les places vendues (réservations confirmées)
+// comptent, pas les sièges en sélection. Chaque section de la salle a sa ligne, même sans vente (zéro).
+// Les sièges hors section sont regroupés dans une ligne « sans section » (id null), présente seulement
+// s'il y en a : la somme des revenus redonne ainsi la recette totale.
+function statistiquesParSection(sieges, sections, tarif) {
+  const ligne = (siegesDeLaLigne, prix) => {
+    const vendus = siegesDeLaLigne.filter((s) => s.etat === 'vendu').length;
+    return {
+      prix,
+      total: siegesDeLaLigne.length,
+      vendus,
+      // Sans prix connu (siège hors section d'un événement sans tarif), le revenu est inconnu, pas zéro.
+      revenu: prix === null ? null : arrondirAuCent(vendus * prix),
+    };
+  };
+
+  const lignes = sections.map((section) => {
+    const { id, nom, couleur, prix } = formatSection(section);
+    return { id, nom, couleur, ...ligne(sieges.filter((s) => s.sectionId === id), prix) };
+  });
+
+  const horsSection = sieges.filter((s) => s.sectionId === null);
+  if (horsSection.length > 0) {
+    lignes.push({ id: null, nom: null, couleur: null, ...ligne(horsSection, tarif) });
+  }
+  return lignes;
 }
 
 // Tableau de bord des ventes (#13) : réservé à l'organisateur de l'événement.

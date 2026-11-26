@@ -3,5 +3,4 @@
 // À déplacer dans le bon *.service.test.js dès que le module est créé.
 
 it.todo('Suivi organisateur : mise à jour des ventes en temps réel (#35)');
-it.todo('Suivi organisateur : statistiques de vente par section tarifaire (#22)');
 it.todo('Temps réel : resynchronisation du plan de salle après une reconnexion (#17)');
