@@ -2,17 +2,18 @@ const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const { jwtSecret } = require('./config/env');
 
-const DELAI_SELECTION_MS = 60_000;
-// Plafond global de la sélection d'un spectateur sur un événement (#163) : sans lui, un spectateur
-// pourrait garder des sièges indéfiniment en en sélectionnant un nouveau avant chaque expiration.
-const PLAFOND_SELECTION_MS = 3 * 60_000;
+// Seule limite de temps de la sélection d'un spectateur sur un événement (#169) : 2 minutes à partir de son
+// premier siège, quel que soit le nombre de sièges ajoutés ensuite. Remplace le délai de 60 s relancé à
+// chaque siège (#37, #162) : c'était de toute façon le plafond (#163) qui décidait de la fin.
+const PLAFOND_SELECTION_MS = 2 * 60_000;
 
-// Sièges « en sélection » (#8, #31, #32), clé `${evenementId}:${siegeId}` → { userId, socketId, timer }.
+// Sièges « en sélection » (#8, #31, #32), clé `${evenementId}:${siegeId}` → { userId, socketId }.
 // ponytail: en mémoire, donc perdu au redémarrage et limité à une seule instance du serveur ; passer par
 // les réservations `en_selection` en base (ou un adaptateur Redis) si on déploie plusieurs instances.
 const selections = new Map();
-// Minuteur du plafond (#163), clé `${evenementId}:${userId}`. Il part du premier siège sélectionné et
-// n'est pas relancé par les suivants ; il disparaît quand le spectateur ne tient plus aucun siège.
+// Plafond (#163, #169), clé `${evenementId}:${userId}` → { timer, echeance }. Il part du premier siège
+// sélectionné et n'est pas relancé par les suivants ; il disparaît quand le spectateur ne tient plus aucun
+// siège. `echeance` (horodatage) sert à renvoyer au client le temps qu'il reste.
 const plafonds = new Map();
 let plafondSelectionMs = PLAFOND_SELECTION_MS;
 let io = null;
@@ -37,7 +38,7 @@ function selectionsDe(evenementId, userId) {
 function oublierPlafondSiVide(evenementId, userId) {
   const k = clePlafond(evenementId, userId);
   if (!plafonds.has(k) || selectionsDe(evenementId, userId).length > 0) return;
-  clearTimeout(plafonds.get(k));
+  clearTimeout(plafonds.get(k).timer);
   plafonds.delete(k);
 }
 
@@ -45,49 +46,21 @@ function liberer(evenementId, siegeId) {
   const k = cle(evenementId, siegeId);
   const s = selections.get(k);
   if (!s) return;
-  // Pas de clearTimeout ici : le minuteur est partagé avec le reste de la sélection du spectateur
-  // (#37, voir siege:selectionner) et doit continuer à courir pour ces autres sièges.
   selections.delete(k);
   io?.to(salon(evenementId)).emit('siege:libere', { siegeId });
   oublierPlafondSiVide(evenementId, s.userId);
 }
 
-// Plafond atteint (#163) : toute la sélection du spectateur est libérée d'un coup. Il est prévenu par un
-// évènement distinct, envoyé avant les `siege:libere`, pour que le client affiche le bon message.
+// Plafond atteint (#163, #169) : toute la sélection du spectateur est libérée d'un coup. Il est prévenu par
+// `selection:plafond`, envoyé avant les `siege:libere`, pour que le client affiche un seul message.
 function atteindrePlafond(evenementId, userId) {
   plafonds.delete(clePlafond(evenementId, userId));
   const tenus = selectionsDe(evenementId, userId);
   const siegeIds = tenus.map((t) => t.siegeId);
-  // `liberer` ne coupe plus le minuteur partagé des 60 s (#37) : on l'arrête ici, sinon il resterait armé
-  // et libérerait trop tôt un siège que le spectateur reprendrait juste après le plafond.
-  siegeIds.forEach((siegeId) => clearTimeout(selections.get(cle(evenementId, siegeId)).timer));
   new Set(tenus.map((t) => t.socketId)).forEach((socketId) => {
     io?.to(socketId).emit('selection:plafond', { evenementId, siegeIds });
   });
   siegeIds.forEach((siegeId) => liberer(evenementId, siegeId));
-}
-
-// Tous les sièges qu'un spectateur tient encore sur un événement (#37) : la sélection expire comme un
-// tout, pas siège par siège, donc on a besoin de la lister pour repousser/déclencher son échéance.
-function siegesUtilisateur(evenementId, userId) {
-  const prefixe = `${evenementId}:`;
-  return [...selections]
-    .filter(([k, s]) => k.startsWith(prefixe) && s.userId === userId)
-    .map(([k]) => Number(k.slice(prefixe.length)));
-}
-
-// Déclenché par le minuteur partagé : libère d'un coup tout ce que ce spectateur tient encore sur cet
-// événement. On ne garde que les sièges encore attachés à CE minuteur précis (`s.timer === timer`) :
-// sans ça, un spectateur qui désélectionne tout puis resélectionne avant l'échéance orpheline se ferait
-// couper sa nouvelle sélection par l'ancien minuteur, qui n'a pas été annulé (voir `liberer`).
-function libererSelectionUtilisateur(evenementId, userId, timer) {
-  const siegeIds = siegesUtilisateur(evenementId, userId).filter(
-    (siegeId) => selections.get(cle(evenementId, siegeId))?.timer === timer,
-  );
-  if (siegeIds.length === 0) return;
-  siegeIds.forEach((id) => selections.delete(cle(evenementId, id)));
-  io?.to(salon(evenementId)).emit('sieges:liberes', { siegeIds });
-  oublierPlafondSiVide(evenementId, userId);
 }
 
 // `verifierProprietaireEvenement` est injecté par l'appelant (server.js), pas requis directement ici :
@@ -97,7 +70,7 @@ async function verifierProprietaireEvenementParDefaut() {
   return null;
 }
 
-// `plafondMs` ne sert qu'aux tests (#163) : avec de faux minuteurs, sauter 3 minutes déclencherait aussi le
+// `plafondMs` ne sert qu'aux tests (#163) : avec de faux minuteurs, sauter 2 minutes déclencherait aussi le
 // battement de cœur de Socket.IO, qui couperait les clients avant que le plafond soit atteint.
 function init(
   httpServer,
@@ -155,24 +128,18 @@ function init(
       if (user?.role !== 'spectateur') return ack?.({ ok: false, error: 'Réservé aux spectateurs connectés.' });
       const k = cle(evenementId, siegeId);
       if (selections.has(k)) return ack?.({ ok: false, error: 'Ce siège est en cours de sélection par quelqu\'un d\'autre.' });
-      selections.set(k, { userId: user.id, socketId: socket.id, timer: null });
-      // Échéance commune à toute la sélection du spectateur (#37) : un nouveau siège la repousse de
-      // DELAI_SELECTION_MS pour TOUS ses sièges déjà tenus sur cet événement, pas seulement le nouveau,
-      // pour qu'ils expirent tous ensemble plutôt qu'un par un.
-      const siegeIds = siegesUtilisateur(evenementId, user.id);
-      const timer = setTimeout(() => libererSelectionUtilisateur(evenementId, user.id, timer), DELAI_SELECTION_MS);
-      siegeIds.forEach((id) => {
-        clearTimeout(selections.get(cle(evenementId, id)).timer);
-        selections.get(cle(evenementId, id)).timer = timer;
-      });
+      selections.set(k, { userId: user.id, socketId: socket.id });
+      // Le plafond part du premier siège et n'est jamais relancé par les suivants (#169).
       const kp = clePlafond(evenementId, user.id);
+      const maintenant = Date.now();
       if (!plafonds.has(kp)) {
-        plafonds.set(kp, setTimeout(() => atteindrePlafond(evenementId, user.id), plafondSelectionMs));
+        const timer = setTimeout(() => atteindrePlafond(evenementId, user.id), plafondSelectionMs);
+        plafonds.set(kp, { timer, echeance: maintenant + plafondSelectionMs });
       }
       socket.to(salon(evenementId)).emit('siege:selectionne', { siegeId });
-      // delaiMs (#37) : le client calcule et affiche lui-même le compte à rebours à partir de là, sans
-      // dupliquer DELAI_SELECTION_MS dans son propre code.
-      ack?.({ ok: true, delaiMs: DELAI_SELECTION_MS });
+      // delaiMs (#37, #169) : temps qui reste avant le plafond, le même pour toute la sélection. Le client
+      // en tire son compte à rebours sans dupliquer PLAFOND_SELECTION_MS dans son propre code.
+      ack?.({ ok: true, delaiMs: Math.max(0, plafonds.get(kp).echeance - maintenant) });
     });
 
     socket.on('siege:deselectionner', ({ evenementId, siegeId }) => {
@@ -199,9 +166,8 @@ function estSelectionneParAutre(evenementId, siegeIds, userId) {
 
 // Après une réservation confirmée : on retire les sélections et tout le monde voit les sièges passer à « réservé ».
 function diffuserReserves(evenementId, siegeIds) {
-  // Pas de clearTimeout ici non plus (#162) : le minuteur est partagé avec le reste de la sélection du
-  // spectateur, qui peut inclure un siège tenu depuis un autre onglet/appareil et pas encore réservé.
-  // Le filtre s.timer === timer de libererSelectionUtilisateur rend un vieux minuteur sans effet.
+  // Le plafond du spectateur ne repart de zéro que s'il ne tient plus aucun siège : il peut en garder un
+  // depuis un autre onglet ou appareil, pas encore réservé (#162).
   const spectateurs = new Set();
   siegeIds.forEach((id) => {
     const s = selections.get(cle(evenementId, id));
@@ -224,6 +190,5 @@ module.exports = {
   estSelectionneParAutre,
   diffuserReserves,
   diffuserVentes,
-  DELAI_SELECTION_MS,
   PLAFOND_SELECTION_MS,
 };
