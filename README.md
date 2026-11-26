@@ -103,7 +103,7 @@ Toutes les routes sont préfixées par `/api`. `GET /` renvoie un simple statut 
 | GET | `/api/evenements` | Lister les événements |
 | POST | `/api/evenements` | Créer un événement (JWT requis, rôle `organisateur`) |
 | GET | `/api/evenements/:id/plan` | Plan de la salle avec la disponibilité des sièges |
-| GET | `/api/evenements/:id/ventes` | Tableau de bord des ventes : vendus, en sélection, libres, recette et état de chaque siège (JWT requis, rôle `organisateur`, uniquement ses propres événements) |
+| GET | `/api/evenements/:id/ventes` | Tableau de bord des ventes : vendus, en sélection, libres, recette et état de chaque siège, avec le titre, la description, l'affiche et le tarif de l'événement, qui servent à le dupliquer (#23) (JWT requis, rôle `organisateur`, uniquement ses propres événements) |
 | POST | `/api/evenements/affiche` | Envoyer une affiche (image brute, 5 Mo max ; JWT requis, rôle `organisateur`) |
 | GET | `/api/reservations` | Lister les réservations du spectateur connecté (JWT requis) |
 | POST | `/api/reservations` | Réserver des sièges (JWT requis, rôle `spectateur`) |

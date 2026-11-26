@@ -129,7 +129,15 @@ function calculerVentes(evenement) {
   const tarif = evenement.tarif === null || evenement.tarif === undefined ? null : Number(evenement.tarif);
 
   return {
-    evenement: { id: evenement.id, titre: evenement.titre, dateHeure: evenement.dateHeure, tarif },
+    // description et afficheUrl servent à dupliquer l'événement pour une nouvelle séance (#23).
+    evenement: {
+      id: evenement.id,
+      titre: evenement.titre,
+      description: evenement.description ?? null,
+      afficheUrl: evenement.afficheUrl ?? null,
+      dateHeure: evenement.dateHeure,
+      tarif,
+    },
     salle: { id: evenement.salle.id, nom: evenement.salle.nom },
     totaux: { total: sieges.length, vendus, enSelection: compter('en_selection'), libres: compter('libre') },
     // Chaque place vendue rapporte le prix de sa section, ou le tarif de l'événement hors section (#11).

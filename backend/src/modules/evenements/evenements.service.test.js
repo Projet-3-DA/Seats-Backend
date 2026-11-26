@@ -179,8 +179,30 @@ describe('getVentesEvenement (#13)', () => {
 
     expect(ventes.totaux).toEqual({ total: 4, vendus: 2, enSelection: 1, libres: 1 });
     expect(ventes.recette).toBe(50);
-    expect(ventes.evenement).toEqual({ id: 1, titre: 'Concert', dateHeure: evenement.dateHeure, tarif: 25 });
+    expect(ventes.evenement).toEqual({
+      id: 1,
+      titre: 'Concert',
+      description: null,
+      afficheUrl: null,
+      dateHeure: evenement.dateHeure,
+      tarif: 25,
+    });
     expect(ventes.salle).toEqual({ id: 19, nom: 'Salle A' });
+  });
+
+  it("renvoie la description et l'affiche, pour dupliquer l'événement (#23)", async () => {
+    prisma.evenement.findUnique.mockResolvedValue({
+      ...evenement,
+      description: 'Une soirée de jazz',
+      afficheUrl: 'https://exemple.com/jazz.jpg',
+    });
+
+    const ventes = await getVentesEvenement(1, 7);
+
+    expect(ventes.evenement).toMatchObject({
+      description: 'Une soirée de jazz',
+      afficheUrl: 'https://exemple.com/jazz.jpg',
+    });
   });
 
   it("donne l'état de chaque siège, trié par rangée puis colonne", async () => {
