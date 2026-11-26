@@ -299,6 +299,111 @@ describe('prix par section (#11)', () => {
   });
 });
 
+describe('statistiques de vente par section (#22)', () => {
+  const balcon = { id: 10, nom: 'Balcon', prix: '40.00', couleur: '#f59e0b' };
+  const parterre = { id: 11, nom: 'Parterre', prix: '19.99', couleur: '#3b82f6' };
+  const fosse = { id: 12, nom: 'Fosse', prix: '15.00', couleur: '#22c55e' };
+  const spectateur = { prenom: 'A', nom: 'B', email: 'a@b.c' };
+  const evenement = {
+    id: 1,
+    organisateurId: 7,
+    titre: 'Concert',
+    dateHeure: new Date('2099-11-05T19:00:00Z'),
+    tarif: '25.00',
+    salle: {
+      id: 19,
+      nom: 'Salle A',
+      sections: [balcon, parterre, fosse],
+      sieges: [
+        { id: 101, numeroRangee: 1, numeroColonne: 1, sectionId: 10, section: balcon },
+        { id: 102, numeroRangee: 1, numeroColonne: 2, sectionId: 10, section: balcon },
+        { id: 201, numeroRangee: 2, numeroColonne: 1, sectionId: 11, section: parterre },
+        { id: 202, numeroRangee: 2, numeroColonne: 2, sectionId: 11, section: parterre },
+        { id: 203, numeroRangee: 2, numeroColonne: 3, sectionId: 11, section: parterre },
+        { id: 301, numeroRangee: 3, numeroColonne: 1, sectionId: 12, section: fosse },
+        { id: 401, numeroRangee: 4, numeroColonne: 1, sectionId: null, section: null },
+        { id: 402, numeroRangee: 4, numeroColonne: 2, sectionId: null, section: null },
+      ],
+    },
+    reservations: [
+      { id: 1, siegeId: 101, statut: 'confirmee', spectateur },
+      { id: 2, siegeId: 201, statut: 'confirmee', spectateur },
+      { id: 3, siegeId: 202, statut: 'confirmee', spectateur },
+      { id: 4, siegeId: 203, statut: 'confirmee', spectateur },
+      { id: 5, siegeId: 401, statut: 'confirmee', spectateur },
+      // En sélection : ne compte pas comme vendu.
+      { id: 6, siegeId: 102, statut: 'en_selection', spectateur },
+      { id: 7, siegeId: 301, statut: 'en_selection', spectateur },
+    ],
+  };
+
+  it('donne, par section, les sièges vendus sur le total et le revenu', async () => {
+    prisma.evenement.findUnique.mockResolvedValue(evenement);
+
+    const { parSection } = await getVentesEvenement(1, 7);
+
+    expect(parSection).toEqual([
+      { id: 10, nom: 'Balcon', couleur: '#f59e0b', prix: 40, total: 2, vendus: 1, revenu: 40 },
+      // 3 × 19,99 arrondi au cent (et non 59.970000000000006)
+      { id: 11, nom: 'Parterre', couleur: '#3b82f6', prix: 19.99, total: 3, vendus: 3, revenu: 59.97 },
+      { id: 12, nom: 'Fosse', couleur: '#22c55e', prix: 15, total: 1, vendus: 0, revenu: 0 },
+      { id: null, nom: null, couleur: null, prix: 25, total: 2, vendus: 1, revenu: 25 },
+    ]);
+  });
+
+  it('ne compte pas les sièges en sélection, et garde à zéro une section sans vente', async () => {
+    prisma.evenement.findUnique.mockResolvedValue(evenement);
+
+    const { parSection } = await getVentesEvenement(1, 7);
+
+    // Fosse : son seul siège est en sélection, elle reste affichée avec zéro vente.
+    expect(parSection.find((l) => l.id === 12)).toMatchObject({ vendus: 0, revenu: 0 });
+    expect(parSection.find((l) => l.id === 10)).toMatchObject({ vendus: 1 });
+  });
+
+  it('la somme des revenus par section redonne la recette totale', async () => {
+    prisma.evenement.findUnique.mockResolvedValue(evenement);
+
+    const { parSection, recette } = await getVentesEvenement(1, 7);
+
+    const somme = parSection.reduce((total, l) => total + l.revenu, 0);
+    expect(somme).toBeCloseTo(recette, 2);
+  });
+
+  it("n'ajoute pas de ligne « sans section » si tous les sièges ont une section", async () => {
+    const salle = { ...evenement.salle, sieges: evenement.salle.sieges.filter((s) => s.sectionId !== null) };
+    prisma.evenement.findUnique.mockResolvedValue({ ...evenement, salle });
+
+    const { parSection } = await getVentesEvenement(1, 7);
+
+    expect(parSection.map((l) => l.id)).toEqual([10, 11, 12]);
+  });
+
+  it('une salle sans section donne une seule ligne au tarif de l’événement', async () => {
+    const salle = { ...evenement.salle, sections: [], sieges: evenement.salle.sieges.filter((s) => s.sectionId === null) };
+    prisma.evenement.findUnique.mockResolvedValue({ ...evenement, salle });
+
+    const { parSection } = await getVentesEvenement(1, 7);
+
+    expect(parSection).toEqual([{ id: null, nom: null, couleur: null, prix: 25, total: 2, vendus: 1, revenu: 25 }]);
+  });
+
+  it("le revenu des sièges hors section est inconnu (null) si l'événement n'a pas de tarif", async () => {
+    prisma.evenement.findUnique.mockResolvedValue({ ...evenement, tarif: null });
+
+    const { parSection } = await getVentesEvenement(1, 7);
+
+    expect(parSection.find((l) => l.id === null)).toMatchObject({ prix: null, vendus: 1, revenu: null });
+    expect(parSection.find((l) => l.id === 10)).toMatchObject({ revenu: 40 });
+  });
+
+  it("refuse (403) les statistiques de l'événement d'un autre organisateur", async () => {
+    prisma.evenement.findUnique.mockResolvedValue(evenement);
+
+    await expect(getVentesEvenement(1, 8)).rejects.toMatchObject({ status: 403 });
+  });
+});
+
 describe('visibilité des événements d\'un organisateur suspendu (#41)', () => {
   it("la liste publique n'inclut que les événements d'organisateurs actifs", async () => {
     prisma.evenement.findMany.mockResolvedValue([]);
